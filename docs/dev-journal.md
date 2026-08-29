@@ -34,3 +34,20 @@ This journal logs real events encountered during the development of SECONDWIND, 
 - **How Detected**: TypeScript strict compiler and Prisma Client validation.
 - **Fix**: Added `DETECTED` and `CLOSED` to `CaseStatus` in `prisma/schema.prisma`, regenerated Prisma client, and explicitly serialized JSON payloads via `JSON.parse(JSON.stringify(sanitized)) as Prisma.InputJsonValue`.
 
+---
+
+### Entry 5: Test State Isolation & Mock Mutation Leak
+- **Timestamp**: 2026-08-29T23:14:00+05:30
+- **What Broke**: Vitest tests 4 and 5 in `orchestrator.test.ts` failed with `MAX_ATTEMPTS_EXCEEDED` because test 3 mutated `mockCaseStore.merchantPolicy.maxAttempts = 0` on the shared `mockMerchantPolicy` reference.
+- **How Detected**: Vitest test runner error reporting `PolicyViolationError: Maximum allowed recovery attempts (0) reached`.
+- **Fix**: Isolated `merchantPolicy` in `beforeEach` with shallow clone `{ ...mockMerchantPolicy }` ensuring clean state per test case.
+
+---
+
+### Entry 6: BigInt Serialization in CaseAuditLog Metadata
+- **Timestamp**: 2026-08-29T23:24:00+05:30
+- **What Broke**: `executeRecoveryAction` failed on provider error logging with `TypeError: Do not know how to serialize a BigInt` when `providerResult.amountMinor` (BigInt) was serialized via standard `JSON.stringify()`.
+- **How Detected**: Vitest assertion error during provider error simulation test.
+- **Fix**: Implemented `safeJson(data)` serialization utility with custom replacer converting BigInt to string representations for Prisma `InputJsonValue` compatibility.
+
+

@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { formatMoney } from "@/lib/money";
+import { getCasePolicyEvaluation } from "@/lib/services/orchestrator-service";
+import { PolicyPanel } from "./policy-panel";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -15,16 +17,22 @@ export default async function CaseDetailPage({ params }: PageProps) {
   const recoveryCase = await prisma.recoveryCase.findUnique({
     where: { id },
     include: {
-      attempts: true,
+      attempts: {
+        orderBy: { attemptNumber: "desc" },
+      },
       auditLogs: {
         orderBy: { createdAt: "desc" },
       },
+      merchantPolicy: true,
     },
   });
 
   if (!recoveryCase) {
     notFound();
   }
+
+  // Get real-time pure policy evaluation
+  const { decision } = await getCasePolicyEvaluation(prisma, id);
 
   // Find linked webhook event(s) for this payment ID
   const webhookEvents = await prisma.webhookEvent.findMany({
@@ -68,7 +76,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
         }}
       >
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
             <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#fff" }}>
               Case {recoveryCase.id}
             </h1>
@@ -81,9 +89,18 @@ export default async function CaseDetailPage({ params }: PageProps) {
         </div>
 
         <div className="badge badge-disclaimer">
-          🔒 No recovery action has been taken
+          {recoveryCase.attempts.length === 0
+            ? "🔒 No recovery action has been taken"
+            : `⚡ ${recoveryCase.attempts.length} Recovery Attempt(s) Dispatched`}
         </div>
       </div>
+
+      {/* Policy Engine Evaluation & Operator Action Panel */}
+      <PolicyPanel
+        caseId={recoveryCase.id}
+        caseVersion={recoveryCase.version}
+        initialDecision={decision}
+      />
 
       {/* Grid: Details & Diagnostics */}
       <div
@@ -136,7 +153,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
         {/* Failure Diagnostics */}
         <div className="glass-card">
           <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "#fff", marginBottom: "1rem" }}>
-            Failure Reason & Provider Diagnostics
+            Failure Reason & Diagnostics
           </h2>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", fontSize: "0.875rem" }}>
             <div>
@@ -168,12 +185,72 @@ export default async function CaseDetailPage({ params }: PageProps) {
                 Recovery Action Status
               </span>
               <span className="badge badge-system-neutral">
-                NO ACTIONS TAKEN • PASSIVE MONITORING
+                {recoveryCase.attempts.length === 0
+                  ? "NO ACTIONS TAKEN • PASSIVE MONITORING"
+                  : `${recoveryCase.attempts.length} ATTEMPTS EXECUTED`}
               </span>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Executed Recovery Attempts History */}
+      {recoveryCase.attempts.length > 0 && (
+        <div className="glass-card" style={{ marginBottom: "2rem" }}>
+          <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "#fff", marginBottom: "1rem" }}>
+            Executed Recovery Attempts ({recoveryCase.attempts.length})
+          </h2>
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Attempt #</th>
+                  <th>Channel</th>
+                  <th>Status</th>
+                  <th>Provider Link ID</th>
+                  <th>Short URL</th>
+                  <th>Dispatched At</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recoveryCase.attempts.map((att) => (
+                  <tr key={att.id}>
+                    <td>
+                      <span className="code-pill">#{att.attemptNumber}</span>
+                    </td>
+                    <td>
+                      <span className="code-pill">{att.channel}</span>
+                    </td>
+                    <td>
+                      <span className="badge badge-recovered">{att.status}</span>
+                    </td>
+                    <td>
+                      <span className="code-pill">{att.paymentLinkId || "N/A"}</span>
+                    </td>
+                    <td>
+                      {att.paymentLinkUrl ? (
+                        <a
+                          href={att.paymentLinkUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: "var(--accent-primary)", textDecoration: "underline" }}
+                        >
+                          {att.paymentLinkUrl}
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td style={{ fontSize: "0.8125rem" }}>
+                      {new Date(att.createdAt).toLocaleString("en-IN")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Webhook Ingestion Evidence & Traceability */}
       <div className="glass-card" style={{ marginBottom: "2rem" }}>
