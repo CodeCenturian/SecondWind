@@ -1,0 +1,192 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CaseStatus {
+  DETECTED
+  OPEN
+  IN_PROGRESS
+  RECOVERED
+  FAILED
+  EXPIRED
+  MANUAL_REVIEW
+  CLOSED
+}
+
+enum AttemptChannel {
+  PAYMENT_LINK
+  SMS
+  EMAIL
+  WHATSAPP
+}
+
+enum AttemptStatus {
+  PENDING
+  SENT
+  DELIVERED
+  CLICKED
+  PAID
+  FAILED
+  EXPIRED
+}
+
+enum WebhookStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+enum AuditActorType {
+  SYSTEM
+  AGENT
+  OPERATOR
+  MERCHANT
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  MANUAL_REVIEW
+}
+
+model MerchantPolicy {
+  id                    String   @id @default(uuid()) @db.Uuid
+  merchantId            String   @unique
+  maxAttempts           Int      @default(3)
+  coolingPeriodMinutes  Int      @default(30)
+  linkExpiryMinutes     Int      @default(1440) // 24 hours
+  autoRefundEnabled     Boolean  @default(false)
+  autoRefundThresholdMinor BigInt @default(0) // Integer minor units
+  allowPartialPayment   Boolean  @default(false)
+  preferredChannels     AttemptChannel[] @default([PAYMENT_LINK, EMAIL])
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  recoveryCases         RecoveryCase[]
+
+  @@index([merchantId])
+}
+
+model RecoveryCase {
+  id               String      @id @default(uuid()) @db.Uuid
+  merchantId       String
+  paymentId        String      // Razorpay Payment ID: pay_xxx
+  orderId          String?     // Razorpay Order ID: order_xxx
+  customerEmail    String?
+  customerPhone    String?
+  amountMinor      BigInt      // Integer minor units (e.g. 10000 = 100.00 INR)
+  currency         String      @default("INR")
+  status           CaseStatus  @default(DETECTED)
+  failureCode      String?
+  failureReason    String?
+  strategy         String?
+  version          Int         @default(1) // Optimistic concurrency version
+  failedAt         DateTime    @default(now())
+  recoveredAt      DateTime?
+  lastAttemptAt    DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  merchantPolicy   MerchantPolicy? @relation(fields: [merchantId], references: [merchantId])
+  attempts         RecoveryAttempt[]
+  auditLogs        CaseAuditLog[]
+  refundTasks      RefundTask[]
+
+  @@unique([merchantId, paymentId])
+  @@index([merchantId, status])
+  @@index([paymentId])
+  @@index([orderId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model RecoveryAttempt {
+  id             String         @id @default(uuid()) @db.Uuid
+  caseId         String         @db.Uuid
+  attemptNumber  Int
+  channel        AttemptChannel @default(PAYMENT_LINK)
+  status         AttemptStatus  @default(PENDING)
+  paymentLinkId  String?        // Provider ID: plink_xxx
+  paymentLinkUrl String?        // Short URL: https://rzp.io/i/xxx
+  errorMessage   String?
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  recoveryCase   RecoveryCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, attemptNumber])
+  @@index([caseId])
+  @@index([paymentLinkId])
+  @@index([status])
+}
+
+model WebhookEvent {
+  id          String        @id @default(uuid()) @db.Uuid
+  eventId     String        @unique // Unique from x-razorpay-event-id header
+  eventType   String        // e.g. payment.failed, payment_link.paid
+  payload     Json          // Full raw event payload JSON
+  status      WebhookStatus @default(RECEIVED)
+  signature   String        // X-Razorpay-Signature
+  error       String?
+  processedAt DateTime?
+  createdAt   DateTime      @default(now())
+
+  @@index([eventId])
+  @@index([eventType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CaseAuditLog {
+  id            String         @id @default(uuid()) @db.Uuid
+  caseId        String         @db.Uuid
+  action        String         // e.g. CASE_CREATED, ATTEMPT_TRIGGERED, STATUS_CHANGED
+  actorType     AuditActorType @default(SYSTEM)
+  actorId       String?        // User ID or Agent ID
+  previousState Json?
+  newState      Json?
+  reason        String?
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+
+  recoveryCase  RecoveryCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model RefundTask {
+  id             String       @id @default(uuid()) @db.Uuid
+  caseId         String?      @db.Uuid
+  paymentId      String       // Razorpay Payment ID: pay_xxx
+  amountMinor    BigInt       // Integer minor units
+  currency       String       @default("INR")
+  refundId       String?      // Razorpay Refund ID: rfnd_xxx
+  status         RefundStatus @default(PENDING)
+  failureReason  String?
+  idempotencyKey String       @unique // Unique idempotency correlation key
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  recoveryCase   RecoveryCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@index([paymentId])
+  @@index([refundId])
+  @@index([status])
+  @@index([idempotencyKey])
+}
