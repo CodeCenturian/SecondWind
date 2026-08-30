@@ -339,13 +339,21 @@ export async function executeRecoveryAction(
  */
 export async function getCasePolicyEvaluation(
   prisma: PrismaClient,
-  caseId: string
-): Promise<{ caseRecord: RecoveryCase; decision: PolicyDecision }> {
+  caseId: string,
+  providedAiDiagnosis?: import("../ai/taxonomy").PersistedAiDiagnosis | null
+): Promise<{
+  caseRecord: RecoveryCase;
+  decision: PolicyDecision;
+  aiDiagnosis: import("../ai/taxonomy").PersistedAiDiagnosis | null;
+}> {
   const currentCase = await prisma.recoveryCase.findUnique({
     where: { id: caseId },
     include: {
       attempts: {
         orderBy: { attemptNumber: "asc" },
+      },
+      auditLogs: {
+        orderBy: { createdAt: "desc" },
       },
       merchantPolicy: true,
     },
@@ -353,6 +361,31 @@ export async function getCasePolicyEvaluation(
 
   if (!currentCase) {
     throw new EntityNotFoundError("RecoveryCase", caseId);
+  }
+
+  // Extract latest persisted AI diagnosis if available
+  let activeAiDiagnosis: import("../ai/taxonomy").PersistedAiDiagnosis | null =
+    providedAiDiagnosis ?? null;
+
+  if (!activeAiDiagnosis) {
+    const latestAiAudit = currentCase.auditLogs.find(
+      (log) =>
+        log.action === "AI_DIAGNOSIS_COMPLETED" ||
+        log.action === "AI_DIAGNOSIS_FAILED"
+    );
+
+    if (latestAiAudit && latestAiAudit.metadata) {
+      const meta = latestAiAudit.metadata as Record<string, unknown>;
+      if (meta["structuredOutput"]) {
+        activeAiDiagnosis = {
+          model: (meta["model"] as string) || "gemini-1.5-flash",
+          promptVersion: (meta["promptVersion"] as string) || "diagnosis-v1.0.0",
+          structuredOutput: meta["structuredOutput"] as import("../ai/taxonomy").AiDiagnosisStructuredOutput,
+          validationStatus: (meta["validationStatus"] as import("../ai/taxonomy").AiDiagnosisValidationStatus) || "VALID",
+          evaluatedAt: (meta["evaluatedAt"] as string) || latestAiAudit.createdAt.toISOString(),
+        };
+      }
+    }
   }
 
   const policyRules = currentCase.merchantPolicy
@@ -396,15 +429,19 @@ export async function getCasePolicyEvaluation(
     isDoNotContact: false,
     diagnosis: {
       category: currentCase.failureCode || "PAYMENT_FAILURE",
-      confidence: 0.92,
-      isRecoverable: true,
+      confidence: activeAiDiagnosis?.structuredOutput.confidence ?? 0.92,
+      isRecoverable: activeAiDiagnosis
+        ? activeAiDiagnosis.structuredOutput.recommendedHandling !== "STOP"
+        : true,
       explanation: currentCase.failureReason || undefined,
     },
+    aiDiagnosis: activeAiDiagnosis,
     duplicateRiskDetected: false,
     hasCustomerContact: Boolean(currentCase.customerEmail || currentCase.customerPhone),
     hasOrderOrPaymentRef: Boolean(currentCase.paymentId || currentCase.orderId),
   };
 
   const decision = evaluateRecoveryPolicy(evaluationInput);
-  return { caseRecord: currentCase, decision };
+  return { caseRecord: currentCase, decision, aiDiagnosis: activeAiDiagnosis };
 }
+

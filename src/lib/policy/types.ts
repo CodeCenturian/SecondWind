@@ -1,4 +1,10 @@
 import { CaseStatus, AttemptChannel } from "@prisma/client";
+import type {
+  ReasonClass,
+  RecommendedHandling,
+  AiDiagnosisValidationStatus,
+  PersistedAiDiagnosis,
+} from "../ai/taxonomy";
 
 export type PolicyOutcome = "ALLOW_ACTION" | "STOP" | "MANUAL_REVIEW";
 
@@ -28,6 +34,14 @@ export interface FailureDiagnosis {
   confidence: number; // 0.0 to 1.0
   isRecoverable: boolean;
   explanation?: string;
+  reasonClass?: ReasonClass;
+  summary?: string;
+  evidence?: string[];
+  recommendedHandling?: RecommendedHandling;
+  uncertainties?: string[];
+  validationStatus?: AiDiagnosisValidationStatus;
+  model?: string;
+  promptVersion?: string;
 }
 
 export interface PolicyEvaluationInput {
@@ -41,6 +55,7 @@ export interface PolicyEvaluationInput {
   currentTime: Date;
   isDoNotContact: boolean;
   diagnosis?: FailureDiagnosis | null;
+  aiDiagnosis?: PersistedAiDiagnosis | null;
   duplicateRiskDetected: boolean;
   hasCustomerContact: boolean;
   hasOrderOrPaymentRef: boolean;
@@ -56,4 +71,11 @@ export interface PolicyDecision {
   policyVersion: string;
   evaluatedAt: Date;
   canExecute: boolean;
+  aiAdvisoryAlignment?: {
+    aiRecommendedHandling?: RecommendedHandling;
+    aiConfidence?: number;
+    isOverriddenByPolicy: boolean;
+    overrideReason?: string;
+  };
 }
+

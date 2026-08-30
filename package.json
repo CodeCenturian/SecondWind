@@ -15,7 +15,9 @@
     "db:migrate": "prisma migrate dev"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.57",
     "@prisma/client": "^6.4.1",
+    "ai": "^7.0.84",
     "next": "^15.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

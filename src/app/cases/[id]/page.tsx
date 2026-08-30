@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { formatMoney } from "@/lib/money";
 import { getCasePolicyEvaluation } from "@/lib/services/orchestrator-service";
 import { PolicyPanel } from "./policy-panel";
+import { DiagnosisPanel } from "./diagnosis-panel";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -31,8 +32,8 @@ export default async function CaseDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  // Get real-time pure policy evaluation
-  const { decision } = await getCasePolicyEvaluation(prisma, id);
+  // Get real-time pure policy evaluation and any persisted AI diagnosis
+  const { decision, aiDiagnosis } = await getCasePolicyEvaluation(prisma, id);
 
   // Find linked webhook event(s) for this payment ID
   const webhookEvents = await prisma.webhookEvent.findMany({
@@ -95,7 +96,13 @@ export default async function CaseDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Policy Engine Evaluation & Operator Action Panel */}
+      {/* AI Semantic Diagnosis Advisory Panel */}
+      <DiagnosisPanel
+        caseId={recoveryCase.id}
+        initialDiagnosis={aiDiagnosis}
+      />
+
+      {/* Deterministic Policy Engine Evaluation & Operator Action Panel */}
       <PolicyPanel
         caseId={recoveryCase.id}
         caseVersion={recoveryCase.version}

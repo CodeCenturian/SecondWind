@@ -108,6 +108,71 @@ export function PolicyPanel({
         <span className={`badge ${outcomeColors.badge}`}>{outcomeColors.label}</span>
       </div>
 
+      {/* AI Advisory Alignment & Policy Authority Banner */}
+      {decision.aiAdvisoryAlignment && (
+        <div
+          style={{
+            background: decision.aiAdvisoryAlignment.isOverriddenByPolicy
+              ? "rgba(239, 68, 68, 0.08)"
+              : "rgba(16, 185, 129, 0.08)",
+            border: `1px solid ${
+              decision.aiAdvisoryAlignment.isOverriddenByPolicy
+                ? "rgba(239, 68, 68, 0.25)"
+                : "rgba(16, 185, 129, 0.25)"
+            }`,
+            borderRadius: "0.5rem",
+            padding: "0.875rem 1.25rem",
+            marginBottom: "1rem",
+            fontSize: "0.8125rem",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "0.5rem",
+          }}
+        >
+          <div>
+            <span style={{ color: "var(--text-muted)" }}>AI Diagnostic Recommendation: </span>
+            <span className="code-pill" style={{ fontWeight: 600 }}>
+              {decision.aiAdvisoryAlignment.aiRecommendedHandling || "NONE"}
+            </span>
+            {decision.aiAdvisoryAlignment.aiConfidence !== undefined && (
+              <span style={{ color: "var(--text-muted)", marginLeft: "0.35rem" }}>
+                ({Math.round(decision.aiAdvisoryAlignment.aiConfidence * 100)}% conf)
+              </span>
+            )}
+          </div>
+
+          <div>
+            {decision.aiAdvisoryAlignment.isOverriddenByPolicy ? (
+              <span
+                style={{
+                  color: "#f87171",
+                  fontWeight: 600,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                }}
+              >
+                <span>🛑 OVERRIDDEN BY MERCHANT POLICY</span>
+              </span>
+            ) : (
+              <span
+                style={{
+                  color: "#34d399",
+                  fontWeight: 600,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                }}
+              >
+                <span>✓ ALIGNED WITH MERCHANT POLICY</span>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Outcome Banner */}
       <div
         style={{
@@ -119,7 +184,7 @@ export function PolicyPanel({
         }}
       >
         <div style={{ fontWeight: 600, color: outcomeColors.text, fontSize: "0.9375rem" }}>
-          Decision: {decision.outcome}
+          Deterministic Policy Outcome: {decision.outcome}
         </div>
         <div style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginTop: "0.35rem" }}>
           {decision.nextStoppingRule}

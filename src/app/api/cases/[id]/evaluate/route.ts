@@ -12,13 +12,14 @@ interface RouteProps {
 export async function GET(_req: NextRequest, { params }: RouteProps) {
   try {
     const { id } = await params;
-    const { caseRecord, decision } = await getCasePolicyEvaluation(prisma, id);
+    const { caseRecord, decision, aiDiagnosis } = await getCasePolicyEvaluation(prisma, id);
 
     return NextResponse.json({
       caseId: caseRecord.id,
       caseStatus: caseRecord.status,
       caseVersion: caseRecord.version,
       decision,
+      aiDiagnosis,
     });
   } catch (error: unknown) {
     if (error instanceof AppError) {
