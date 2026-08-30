@@ -12,13 +12,9 @@ import {
 } from "@prisma/client";
 import { ConcurrencyConflictError } from "../errors";
 import { PaymentEntity, sanitizePayload } from "../webhook";
-import { formatAuditEntry } from "../audit";
+import { formatAuditEntry, safeJson } from "../audit";
 import { ProviderAdapter, RazorpayAdapter } from "../adapters/provider-adapter";
 import { evaluateCorrelation } from "./correlation-service";
-
-function safeJson(data: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(data));
-}
 
 export interface ClaimEventInput {
   eventId: string;

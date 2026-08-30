@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { CaseStatus, AuditActorType } from "@prisma/client";
+import { safeJson } from "@/lib/audit";
 
 interface OperatorActionBody {
   action: "ESCALATE_TO_MANUAL_REVIEW" | "CLOSE_CASE" | "REOPEN_FOR_RECOVERY";
@@ -71,10 +72,10 @@ export async function POST(
           caseId: id,
           action: `OPERATOR_${body.action}`,
           actorType: AuditActorType.OPERATOR,
-          previousState: JSON.parse(JSON.stringify({ status: currentCase.status, version: currentCase.version })),
-          newState: JSON.parse(JSON.stringify({ status: c.status, version: c.version })),
+          previousState: safeJson({ status: currentCase.status, version: currentCase.version }),
+          newState: safeJson({ status: c.status, version: c.version }),
           reason: body.reason,
-          metadata: JSON.parse(JSON.stringify({ requestedAction: body.action })),
+          metadata: safeJson({ requestedAction: body.action }),
         },
       });
 

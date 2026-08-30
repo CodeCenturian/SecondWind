@@ -1,19 +1,9 @@
-import { PrismaClient, Prisma, CaseStatus, AttemptChannel, AttemptStatus, AuditActorType, RecoveryCase, RecoveryAttempt } from "@prisma/client";
+import { PrismaClient, CaseStatus, AttemptChannel, AttemptStatus, AuditActorType, RecoveryCase, RecoveryAttempt } from "@prisma/client";
 import { evaluateRecoveryPolicy } from "../policy/engine";
 import { PolicyDecision, PolicyEvaluationInput } from "../policy/types";
 import { ProviderAdapter, RazorpayAdapter } from "../adapters/provider-adapter";
 import { ConcurrencyConflictError, PolicyViolationError, EntityNotFoundError } from "../errors";
-
-/**
- * Safely converts any object containing BigInt or Dates to Prisma InputJsonValue.
- */
-function safeJson(data: unknown): Prisma.InputJsonValue {
-  return JSON.parse(
-    JSON.stringify(data, (_key, value) =>
-      typeof value === "bigint" ? value.toString() : value
-    )
-  ) as Prisma.InputJsonValue;
-}
+import { safeJson } from "../audit";
 
 export interface ExecuteRecoveryActionParams {
   caseId: string;
