@@ -6,6 +6,8 @@ export const metadata: Metadata = {
   description: "Deterministic payment recovery operations and idempotent webhook orchestration.",
 };
 
+import Link from "next/link";
+
 export default function RootLayout({
   children,
 }: {
@@ -17,16 +19,22 @@ export default function RootLayout({
         <header className="header">
           <div className="container header-content">
             <div className="logo-section">
-              <span className="logo-badge">SECONDWIND</span>
-              <span className="logo-title">Recovery Console</span>
+              <Link href="/" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+                <span className="logo-badge">SECONDWIND</span>
+                <span className="logo-title">Recovery Console</span>
+              </Link>
             </div>
-            <nav className="nav-links">
-              <a href="/" style={{ color: "#fff", fontWeight: 600 }}>
-                Cases
-              </a>
+            <nav className="nav-links" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+              <Link href="/" style={{ color: "#fff", fontWeight: 600, fontSize: "0.875rem" }}>
+                Cases Ledger
+              </Link>
               <span style={{ color: "var(--text-muted)" }}>•</span>
-              <span style={{ color: "#34d399", fontSize: "0.8125rem" }}>
-                ● Razorpay Test Mode Connected
+              <Link href="/reconciliation" style={{ color: "#34d399", fontWeight: 600, fontSize: "0.875rem" }}>
+                Reconciliation
+              </Link>
+              <span style={{ color: "var(--text-muted)" }}>•</span>
+              <span style={{ color: "#10b981", fontSize: "0.75rem", background: "rgba(16, 185, 129, 0.12)", border: "1px solid rgba(16, 185, 129, 0.3)", padding: "0.2rem 0.6rem", borderRadius: "9999px" }}>
+                ● Razorpay Test Mode
               </span>
             </nav>
           </div>

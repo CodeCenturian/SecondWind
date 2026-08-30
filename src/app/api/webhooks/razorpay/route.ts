@@ -4,11 +4,14 @@ import { prisma } from "@/lib/db";
 import {
   verifyRazorpaySignature,
   PaymentFailedWebhookSchema,
+  PaymentCapturedWebhookSchema,
+  PaymentLinkPaidWebhookSchema,
   GenericRazorpayWebhookSchema,
 } from "@/lib/webhook";
 import {
   claimWebhookEvent,
   ingestPaymentFailure,
+  reconcileRecoveryPayment,
   updateWebhookEventStatus,
 } from "@/lib/services/case-service";
 import { WebhookStatus } from "@prisma/client";
@@ -124,6 +127,117 @@ export async function POST(req: NextRequest) {
           eventId,
           WebhookStatus.FAILED,
           "Failed to parse payment.failed schema details"
+        );
+        return NextResponse.json(
+          { received: true, eventId, status: "SCHEMA_MISMATCH" },
+          { status: 200 }
+        );
+      }
+    }
+
+    if (eventType === "payment_link.paid") {
+      const linkPaidResult = PaymentLinkPaidWebhookSchema.safeParse(eventPayload);
+      if (linkPaidResult.success) {
+        const plinkEntity = linkPaidResult.data.payload.payment_link.entity;
+        const paymentEntity = linkPaidResult.data.payload.payment?.entity;
+
+        const providerPaymentId =
+          paymentEntity?.id || `pay_plink_${plinkEntity.id}_${Date.now()}`;
+        const amountMinor = BigInt(
+          paymentEntity?.amount ?? plinkEntity.amount_paid ?? plinkEntity.amount
+        );
+        const currency = paymentEntity?.currency || "INR";
+        const isCaptured = paymentEntity ? Boolean(paymentEntity.captured) : true;
+        const paymentStatus = paymentEntity?.status || plinkEntity.status || "captured";
+
+        const reconResult = await reconcileRecoveryPayment(prisma, {
+          merchantId,
+          providerPaymentLinkId: plinkEntity.id,
+          correlationToken: plinkEntity.reference_id,
+          providerPaymentId,
+          amountMinor,
+          currency,
+          status: paymentStatus,
+          captured: isCaptured,
+          webhookEventId: eventId,
+          rawPayload: eventPayload as Record<string, unknown>,
+        });
+
+        await updateWebhookEventStatus(prisma, eventId, WebhookStatus.PROCESSED);
+
+        return NextResponse.json(
+          {
+            received: true,
+            eventId,
+            status: "PROCESSED",
+            reconStatus: reconResult.status,
+            transitionedToRecovered: reconResult.transitionedToRecovered,
+            caseId: reconResult.caseRecord?.id,
+            reason: reconResult.reason,
+          },
+          { status: 200 }
+        );
+      } else {
+        await updateWebhookEventStatus(
+          prisma,
+          eventId,
+          WebhookStatus.FAILED,
+          "Failed to parse payment_link.paid schema details"
+        );
+        return NextResponse.json(
+          { received: true, eventId, status: "SCHEMA_MISMATCH" },
+          { status: 200 }
+        );
+      }
+    }
+
+    if (eventType === "payment.captured") {
+      const capturedResult = PaymentCapturedWebhookSchema.safeParse(eventPayload);
+      if (capturedResult.success) {
+        const paymentEntity = capturedResult.data.payload.payment.entity;
+        const notes = (paymentEntity.notes || {}) as Record<string, unknown>;
+        const correlationToken =
+          typeof notes["correlation_token"] === "string"
+            ? notes["correlation_token"]
+            : typeof notes["reference_id"] === "string"
+            ? notes["reference_id"]
+            : null;
+        const caseId =
+          typeof notes["case_id"] === "string" ? notes["case_id"] : null;
+
+        const reconResult = await reconcileRecoveryPayment(prisma, {
+          merchantId,
+          correlationToken,
+          caseId,
+          providerPaymentId: paymentEntity.id,
+          amountMinor: BigInt(paymentEntity.amount),
+          currency: paymentEntity.currency || "INR",
+          status: paymentEntity.status || "captured",
+          captured: Boolean(paymentEntity.captured),
+          webhookEventId: eventId,
+          rawPayload: eventPayload as Record<string, unknown>,
+        });
+
+        await updateWebhookEventStatus(prisma, eventId, WebhookStatus.PROCESSED);
+
+        return NextResponse.json(
+          {
+            received: true,
+            eventId,
+            status: "PROCESSED",
+            reconStatus: reconResult.status,
+            transitionedToRecovered: reconResult.transitionedToRecovered,
+            caseId: reconResult.caseRecord?.id,
+            reason: reconResult.reason,
+          },
+          { status: 200 }
+        );
+      } else {
+        await updateWebhookEventStatus(
+          prisma,
+          eventId,
+          WebhookStatus.FAILED,
+          "Failed to parse payment.captured schema details"
         );
         return NextResponse.json(
           { received: true, eventId, status: "SCHEMA_MISMATCH" },

@@ -1,4 +1,13 @@
-import { PrismaClient, Prisma, CaseStatus, WebhookStatus, AuditActorType, RecoveryCase } from "@prisma/client";
+import {
+  PrismaClient,
+  Prisma,
+  CaseStatus,
+  AttemptStatus,
+  WebhookStatus,
+  AuditActorType,
+  RecoveryCase,
+  RecoveryAttempt,
+} from "@prisma/client";
 import { ConcurrencyConflictError } from "../errors";
 import { PaymentEntity, sanitizePayload } from "../webhook";
 import { formatAuditEntry } from "../audit";
@@ -308,3 +317,288 @@ export async function updateWebhookEventStatus(
     },
   });
 }
+
+export interface ReconcilePaymentInput {
+  merchantId?: string;
+  providerPaymentLinkId?: string | null;
+  correlationToken?: string | null;
+  caseId?: string | null;
+  providerPaymentId: string; // Razorpay payment ID: pay_xxx
+  amountMinor: bigint; // captured amount in minor units
+  currency: string; // e.g. "INR"
+  status: string; // e.g. "captured" or "paid"
+  captured: boolean; // Must be true for final recovery settlement
+  webhookEventId?: string;
+  rawPayload?: Record<string, unknown>;
+}
+
+export interface ReconcilePaymentResult {
+  matched: boolean;
+  isDuplicate: boolean;
+  transitionedToRecovered: boolean;
+  caseRecord?: RecoveryCase;
+  attemptRecord?: RecoveryAttempt;
+  status: "RECOVERED" | "MANUAL_REVIEW" | "ALREADY_RECOVERED" | "NO_MATCH" | "NON_CAPTURED_IGNORED";
+  reason: string;
+}
+
+/**
+ * Authoritatively reconciles an incoming payment event against active recovery cases and attempts.
+ * Transitions to RECOVERED ONLY when:
+ * 1. An exact matching RecoveryAttempt / RecoveryCase is found by paymentLinkId or opaque correlationToken.
+ * 2. Provider confirms captured: true and status: "captured" | "paid".
+ * 3. Exact amount and currency constraints match the case specification.
+ * Mismatches or non-captured statuses fail closed to MANUAL_REVIEW or are recorded without double-counting.
+ */
+export async function reconcileRecoveryPayment(
+  prisma: PrismaClient,
+  input: ReconcilePaymentInput
+): Promise<ReconcilePaymentResult> {
+  const {
+    providerPaymentLinkId,
+    correlationToken,
+    caseId,
+    providerPaymentId,
+    amountMinor,
+    currency,
+    status: paymentStatus,
+    captured,
+    webhookEventId,
+  } = input;
+
+  // 1. Locate RecoveryAttempt by paymentLinkId or correlationToken
+  let matchedAttempt = null;
+
+  if (providerPaymentLinkId) {
+    matchedAttempt = await prisma.recoveryAttempt.findFirst({
+      where: { paymentLinkId: providerPaymentLinkId },
+      include: { recoveryCase: true },
+    });
+  }
+
+  if (!matchedAttempt && correlationToken) {
+    // Look up attempt by correlation token in metadata or paymentLinkId
+    const attempts = await prisma.recoveryAttempt.findMany({
+      where: {
+        metadata: {
+          path: ["correlationToken"],
+          equals: correlationToken,
+        },
+      },
+      include: { recoveryCase: true },
+      take: 1,
+    });
+    if (attempts.length > 0) {
+      matchedAttempt = attempts[0];
+    }
+  }
+
+  if (!matchedAttempt && caseId) {
+    const directCase = await prisma.recoveryCase.findUnique({
+      where: { id: caseId },
+      include: {
+        attempts: {
+          orderBy: { attemptNumber: "desc" },
+          take: 1,
+        },
+      },
+    });
+    if (directCase && directCase.attempts.length > 0) {
+      const latestAttempt = directCase.attempts[0];
+      if (latestAttempt) {
+        matchedAttempt = {
+          ...latestAttempt,
+          recoveryCase: directCase,
+        };
+      }
+    }
+  }
+
+  if (!matchedAttempt || !matchedAttempt.recoveryCase) {
+    return {
+      matched: false,
+      isDuplicate: false,
+      transitionedToRecovered: false,
+      status: "NO_MATCH",
+      reason: `No matching recovery attempt or case found for provider payment link "${providerPaymentLinkId}" / correlation "${correlationToken}"`,
+    };
+  }
+
+  const currentCase = matchedAttempt.recoveryCase;
+  const currentAttempt = matchedAttempt;
+
+  // 2. Check for Duplicate / Idempotent Webhook
+  if (currentCase.status === CaseStatus.RECOVERED) {
+    return {
+      matched: true,
+      isDuplicate: true,
+      transitionedToRecovered: false,
+      caseRecord: currentCase,
+      attemptRecord: currentAttempt,
+      status: "ALREADY_RECOVERED",
+      reason: `Case ${currentCase.id} is already in RECOVERED state. Duplicate webhook acknowledged idempotently.`,
+    };
+  }
+
+  // 3. Check Authoritative Captured Status
+  // INVARIANT: Only payments with captured === true count as recovered money!
+  const isCaptured = captured === true && (paymentStatus.toLowerCase() === "captured" || paymentStatus.toLowerCase() === "paid");
+  if (!isCaptured) {
+    // Record audit observation but do NOT transition to RECOVERED
+    await prisma.caseAuditLog.create({
+      data: {
+        caseId: currentCase.id,
+        action: "RECOVERY_PAYMENT_NON_CAPTURED_EVENT",
+        actorType: AuditActorType.SYSTEM,
+        reason: `Provider webhook received status "${paymentStatus}" (captured: ${captured}); awaiting capture confirmation.`,
+        metadata: {
+          providerPaymentId,
+          providerPaymentLinkId,
+          webhookEventId,
+          paymentStatus,
+          captured,
+        },
+      },
+    });
+
+    return {
+      matched: true,
+      isDuplicate: false,
+      transitionedToRecovered: false,
+      caseRecord: currentCase,
+      attemptRecord: currentAttempt,
+      status: "NON_CAPTURED_IGNORED",
+      reason: `Payment status "${paymentStatus}" with captured=${captured} is not authoritative captured settlement. Operational count only.`,
+    };
+  }
+
+  // 4. Amount and Currency Validation
+  const currencyMatches = currency.toUpperCase() === currentCase.currency.toUpperCase();
+  const amountSufficient = amountMinor >= currentCase.amountMinor;
+
+  if (!currencyMatches || !amountSufficient) {
+    // Mismatch fails closed to MANUAL_REVIEW
+    const updatedCase = await prisma.$transaction(async (tx) => {
+      const c = await tx.recoveryCase.update({
+        where: { id: currentCase.id },
+        data: {
+          status: CaseStatus.MANUAL_REVIEW,
+          version: currentCase.version + 1,
+        },
+      });
+
+      await tx.recoveryAttempt.update({
+        where: { id: currentAttempt.id },
+        data: {
+          status: AttemptStatus.FAILED,
+          errorMessage: `Amount/Currency mismatch: expected ${currentCase.amountMinor} ${currentCase.currency}, received ${amountMinor} ${currency}`,
+        },
+      });
+
+      await tx.caseAuditLog.create({
+        data: {
+          caseId: currentCase.id,
+          action: "RECOVERY_AMOUNT_MISMATCH_ROUTED_TO_MANUAL_REVIEW",
+          actorType: AuditActorType.SYSTEM,
+          previousState: { status: currentCase.status, version: currentCase.version },
+          newState: { status: CaseStatus.MANUAL_REVIEW, version: c.version },
+          reason: `Captured amount (${amountMinor} ${currency}) mismatched expected case amount (${currentCase.amountMinor} ${currentCase.currency}).`,
+          metadata: {
+            providerPaymentId,
+            providerPaymentLinkId,
+            webhookEventId,
+            expectedAmount: currentCase.amountMinor.toString(),
+            receivedAmount: amountMinor.toString(),
+            expectedCurrency: currentCase.currency,
+            receivedCurrency: currency,
+          },
+        },
+      });
+
+      return c;
+    });
+
+    return {
+      matched: true,
+      isDuplicate: false,
+      transitionedToRecovered: false,
+      caseRecord: updatedCase,
+      attemptRecord: currentAttempt,
+      status: "MANUAL_REVIEW",
+      reason: `Amount/Currency mismatch: expected ${currentCase.amountMinor} ${currentCase.currency}, received ${amountMinor} ${currency}. Case routed to MANUAL_REVIEW.`,
+    };
+  }
+
+  // 5. Atomic Settlement Commit
+  const settlementResult = await prisma.$transaction(async (tx) => {
+    // Update RecoveryAttempt to PAID
+    const existingMeta = (currentAttempt.metadata || {}) as Record<string, unknown>;
+    const updatedAttempt = await tx.recoveryAttempt.update({
+      where: { id: currentAttempt.id },
+      data: {
+        status: AttemptStatus.PAID,
+        metadata: {
+          ...existingMeta,
+          capturedPaymentId: providerPaymentId,
+          capturedAmountMinor: amountMinor.toString(),
+          capturedCurrency: currency,
+          capturedAt: new Date().toISOString(),
+          webhookEventId,
+        },
+      },
+    });
+
+    // Update RecoveryCase to RECOVERED
+    const updatedCase = await tx.recoveryCase.update({
+      where: { id: currentCase.id },
+      data: {
+        status: CaseStatus.RECOVERED,
+        recoveredAt: new Date(),
+        version: currentCase.version + 1,
+      },
+    });
+
+    // Create immutable audit log
+    await tx.caseAuditLog.create({
+      data: {
+        caseId: currentCase.id,
+        action: "RECOVERY_VERIFIED_AND_SETTLED",
+        actorType: AuditActorType.SYSTEM,
+        actorId: "razorpay_webhook_settlement",
+        previousState: {
+          status: currentCase.status,
+          version: currentCase.version,
+        },
+        newState: {
+          status: CaseStatus.RECOVERED,
+          version: updatedCase.version,
+          paymentId: providerPaymentId,
+          amountMinor: amountMinor.toString(),
+          currency,
+          attemptId: currentAttempt.id,
+        },
+        reason: `Recovery payment ${providerPaymentId} confirmed captured with exact amount ${amountMinor} ${currency}.`,
+        metadata: {
+          providerPaymentId,
+          providerPaymentLinkId,
+          correlationToken,
+          webhookEventId,
+          settledAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    return { updatedCase, updatedAttempt };
+  });
+
+  return {
+    matched: true,
+    isDuplicate: false,
+    transitionedToRecovered: true,
+    caseRecord: settlementResult.updatedCase,
+    attemptRecord: settlementResult.updatedAttempt,
+    status: "RECOVERED",
+    reason: `Recovery payment ${providerPaymentId} verified and settled. Case transitioned to RECOVERED.`,
+  };
+}
+

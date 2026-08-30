@@ -217,6 +217,9 @@ export async function executeRecoveryAction(
   // 6. OUT-OF-TRANSACTION External Provider Call
   const nextAttemptNumber = currentCase.attempts.length + 1;
   const linkExpiryUnix = Math.floor(Date.now() / 1000) + policyRules.linkExpiryMinutes * 60;
+  
+  // Generate internal opaque correlation token
+  const correlationToken = `rcov_corr_${currentCase.id.slice(0, 8)}_att${nextAttemptNumber}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
   const providerResult = await adapter.createPaymentLink({
     amountMinor: currentCase.amountMinor,
@@ -224,12 +227,14 @@ export async function executeRecoveryAction(
     description: `SecondWind Recovery for ${currentCase.paymentId}`,
     customerEmail: currentCase.customerEmail,
     customerContact: currentCase.customerPhone,
-    referenceId: idempotencyKey,
+    referenceId: correlationToken,
     expireByUnix: linkExpiryUnix,
     notes: {
       case_id: currentCase.id,
       attempt_number: String(nextAttemptNumber),
       merchant_id: currentCase.merchantId,
+      correlation_token: correlationToken,
+      idempotency_key: idempotencyKey,
     },
   });
 
@@ -242,7 +247,7 @@ export async function executeRecoveryAction(
         actorType,
         actorId,
         reason: providerResult.error || "Provider call returned failure",
-        metadata: safeJson({ idempotencyKey, providerResult }),
+        metadata: safeJson({ idempotencyKey, correlationToken, providerResult }),
       },
     });
 
@@ -283,6 +288,7 @@ export async function executeRecoveryAction(
         paymentLinkUrl: providerResult.shortUrl,
         metadata: safeJson({
           idempotencyKey,
+          correlationToken,
           policyVersion: decision.policyVersion,
           decisionReasons: decision.reasons,
           providerResponse: providerResult.rawResponse,
