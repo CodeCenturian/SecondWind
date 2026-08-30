@@ -7,10 +7,18 @@ import {
   AuditActorType,
   RecoveryCase,
   RecoveryAttempt,
+  RefundStatus,
+  RefundTask,
 } from "@prisma/client";
 import { ConcurrencyConflictError } from "../errors";
 import { PaymentEntity, sanitizePayload } from "../webhook";
 import { formatAuditEntry } from "../audit";
+import { ProviderAdapter, RazorpayAdapter } from "../adapters/provider-adapter";
+import { evaluateCorrelation } from "./correlation-service";
+
+function safeJson(data: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(data));
+}
 
 export interface ClaimEventInput {
   eventId: string;
@@ -323,6 +331,7 @@ export interface ReconcilePaymentInput {
   providerPaymentLinkId?: string | null;
   correlationToken?: string | null;
   caseId?: string | null;
+  orderId?: string | null;
   providerPaymentId: string; // Razorpay payment ID: pay_xxx
   amountMinor: bigint; // captured amount in minor units
   currency: string; // e.g. "INR"
@@ -330,6 +339,7 @@ export interface ReconcilePaymentInput {
   captured: boolean; // Must be true for final recovery settlement
   webhookEventId?: string;
   rawPayload?: Record<string, unknown>;
+  adapter?: ProviderAdapter;
 }
 
 export interface ReconcilePaymentResult {
@@ -338,8 +348,9 @@ export interface ReconcilePaymentResult {
   transitionedToRecovered: boolean;
   caseRecord?: RecoveryCase;
   attemptRecord?: RecoveryAttempt;
-  status: "RECOVERED" | "MANUAL_REVIEW" | "ALREADY_RECOVERED" | "NO_MATCH" | "NON_CAPTURED_IGNORED";
+  status: "RECOVERED" | "MANUAL_REVIEW" | "ALREADY_RECOVERED" | "NO_MATCH" | "NON_CAPTURED_IGNORED" | "DUPLICATE_RISK_FLAGGED";
   reason: string;
+  refundTask?: RefundTask;
 }
 
 /**
@@ -348,7 +359,7 @@ export interface ReconcilePaymentResult {
  * 1. An exact matching RecoveryAttempt / RecoveryCase is found by paymentLinkId or opaque correlationToken.
  * 2. Provider confirms captured: true and status: "captured" | "paid".
  * 3. Exact amount and currency constraints match the case specification.
- * Mismatches or non-captured statuses fail closed to MANUAL_REVIEW or are recorded without double-counting.
+ * Mismatches, non-captured statuses, or late adversarial races fail closed to MANUAL_REVIEW or trigger remediation.
  */
 export async function reconcileRecoveryPayment(
   prisma: PrismaClient,
@@ -366,18 +377,36 @@ export async function reconcileRecoveryPayment(
     webhookEventId,
   } = input;
 
-  // 1. Locate RecoveryAttempt by paymentLinkId or correlationToken
-  let matchedAttempt = null;
+  const activeAdapter: ProviderAdapter = input.adapter || new RazorpayAdapter();
+
+  // 1. Locate RecoveryAttempt and candidate RecoveryCase
+  let matchedCase: (RecoveryCase & {
+    attempts: RecoveryAttempt[];
+    merchantPolicy?: import("@prisma/client").MerchantPolicy | null;
+    refundTasks?: RefundTask[];
+  }) | null = null;
+  let matchedAttempt: RecoveryAttempt | null = null;
 
   if (providerPaymentLinkId) {
-    matchedAttempt = await prisma.recoveryAttempt.findFirst({
+    const att = await prisma.recoveryAttempt.findFirst({
       where: { paymentLinkId: providerPaymentLinkId },
-      include: { recoveryCase: true },
+      include: {
+        recoveryCase: {
+          include: {
+            attempts: { orderBy: { attemptNumber: "asc" } },
+            merchantPolicy: true,
+            refundTasks: true,
+          },
+        },
+      },
     });
+    if (att) {
+      matchedAttempt = att;
+      matchedCase = att.recoveryCase as any;
+    }
   }
 
-  if (!matchedAttempt && correlationToken) {
-    // Look up attempt by correlation token in metadata or paymentLinkId
+  if (!matchedCase && correlationToken) {
     const attempts = await prisma.recoveryAttempt.findMany({
       where: {
         metadata: {
@@ -385,69 +414,311 @@ export async function reconcileRecoveryPayment(
           equals: correlationToken,
         },
       },
-      include: { recoveryCase: true },
+      include: {
+        recoveryCase: {
+          include: {
+            attempts: { orderBy: { attemptNumber: "asc" } },
+            merchantPolicy: true,
+            refundTasks: true,
+          },
+        },
+      },
       take: 1,
     });
     if (attempts.length > 0) {
-      matchedAttempt = attempts[0];
+      matchedAttempt = attempts[0] || null;
+      matchedCase = attempts[0]?.recoveryCase as any;
     }
   }
 
-  if (!matchedAttempt && caseId) {
-    const directCase = await prisma.recoveryCase.findUnique({
+  if (!matchedCase && caseId) {
+    matchedCase = (await prisma.recoveryCase.findUnique({
       where: { id: caseId },
       include: {
-        attempts: {
-          orderBy: { attemptNumber: "desc" },
-          take: 1,
-        },
+        attempts: { orderBy: { attemptNumber: "asc" } },
+        merchantPolicy: true,
+        refundTasks: true,
       },
-    });
-    if (directCase && directCase.attempts.length > 0) {
-      const latestAttempt = directCase.attempts[0];
-      if (latestAttempt) {
-        matchedAttempt = {
-          ...latestAttempt,
-          recoveryCase: directCase,
-        };
-      }
+    })) as any;
+    if (matchedCase && matchedCase.attempts.length > 0) {
+      matchedAttempt = matchedCase.attempts[matchedCase.attempts.length - 1] || null;
     }
   }
 
-  if (!matchedAttempt || !matchedAttempt.recoveryCase) {
+  if (!matchedCase && providerPaymentId) {
+    // Check if this incoming payment matches an original failed case paymentId
+    const directCase = await prisma.recoveryCase.findFirst({
+      where: { paymentId: providerPaymentId },
+      include: {
+        attempts: { orderBy: { attemptNumber: "asc" } },
+        merchantPolicy: true,
+        refundTasks: true,
+      },
+    });
+    if (directCase) {
+      matchedCase = directCase as any;
+      matchedAttempt = directCase.attempts[directCase.attempts.length - 1] || null;
+    }
+  }
+
+  if (!matchedCase) {
     return {
       matched: false,
       isDuplicate: false,
       transitionedToRecovered: false,
       status: "NO_MATCH",
-      reason: `No matching recovery attempt or case found for provider payment link "${providerPaymentLinkId}" / correlation "${correlationToken}"`,
+      reason: `No matching recovery attempt or case found for provider payment link "${providerPaymentLinkId}" / payment ID "${providerPaymentId}"`,
     };
   }
 
-  const currentCase = matchedAttempt.recoveryCase;
-  const currentAttempt = matchedAttempt;
+  // Ensure attempts are loaded on matchedCase
+  if (!matchedCase.attempts || matchedCase.attempts.length === 0) {
+    const loadedAttempts = await prisma.recoveryAttempt.findMany({
+      where: { caseId: matchedCase.id },
+      orderBy: { attemptNumber: "asc" },
+    });
+    matchedCase.attempts = loadedAttempts || [];
+  }
 
-  // 2. Check for Duplicate / Idempotent Webhook
-  if (currentCase.status === CaseStatus.RECOVERED) {
+  // 2. Pure Correlation Evaluation
+  const candidateSummary = {
+    id: matchedCase.id,
+    paymentId: matchedCase.paymentId,
+    orderId: matchedCase.orderId,
+    customerEmail: matchedCase.customerEmail,
+    amountMinor: matchedCase.amountMinor,
+    currency: matchedCase.currency,
+    status: matchedCase.status,
+    recoveredAt: matchedCase.recoveredAt,
+    attempts: (matchedCase.attempts || []).map((a) => ({
+      id: a.id,
+      attemptNumber: a.attemptNumber,
+      status: a.status,
+      paymentLinkId: a.paymentLinkId,
+      metadata: (a.metadata as Record<string, unknown>) || null,
+    })),
+  };
+
+  const decision = evaluateCorrelation(
+    {
+      paymentId: providerPaymentId,
+      amountMinor,
+      currency,
+      status: paymentStatus,
+      captured,
+      orderId: input.orderId || matchedCase.orderId,
+      paymentLinkId: providerPaymentLinkId,
+      correlationToken,
+      notes: (input.rawPayload?.["payload"] as any)?.payment?.entity?.notes || {},
+    },
+    candidateSummary
+  );
+
+  // 3. Handle CONFIRMED_DUPLICATE_RACE (Adversarial Payment Race Protection)
+  if (decision.classification === "CONFIRMED_DUPLICATE_RACE") {
+    const idempotencyKey = `rfnd_idem_${matchedCase.id}_${providerPaymentId}`;
+
+    // Check if duplicate race was already remediated
+    const existingRefundTask = await prisma.refundTask.findUnique({
+      where: { idempotencyKey },
+    });
+
+    if (existingRefundTask) {
+      return {
+        matched: true,
+        isDuplicate: true,
+        transitionedToRecovered: false,
+        caseRecord: matchedCase,
+        status: "DUPLICATE_RISK_FLAGGED",
+        reason: "Adversarial duplicate race was already recorded and remediated.",
+        refundTask: existingRefundTask,
+      };
+    }
+
+    // A. Flag Duplicate Risk on Case Atomically
+    const updatedCase = await prisma.$transaction(async (tx) => {
+      const c = await tx.recoveryCase.update({
+        where: { id: matchedCase.id },
+        data: {
+          status: CaseStatus.MANUAL_REVIEW,
+          version: matchedCase.version + 1,
+        },
+      });
+
+      await tx.caseAuditLog.create({
+        data: {
+          caseId: matchedCase.id,
+          action: "ADVERSARIAL_PAYMENT_RACE_DETECTED",
+          actorType: AuditActorType.SYSTEM,
+          previousState: safeJson({ status: matchedCase.status, version: matchedCase.version }),
+          newState: safeJson({ status: CaseStatus.MANUAL_REVIEW, version: c.version }),
+          reason: "Late original payment event arrived on already recovered case. Duplicate risk flagged.",
+          metadata: safeJson({
+            originalPaymentId: decision.originalPaymentId,
+            conflictingPaymentId: decision.conflictingPaymentId,
+            evidence: decision.evidence,
+            webhookEventId,
+          }),
+        },
+      });
+
+      return c;
+    });
+
+    // B. Cancel any pending payment links OUT-OF-TRANSACTION
+    const pendingAttempt = matchedCase.attempts.find(
+      (a) => (a.status === AttemptStatus.SENT || a.status === AttemptStatus.PENDING) && a.paymentLinkId
+    );
+    if (pendingAttempt && pendingAttempt.paymentLinkId) {
+      const cancelRes = await activeAdapter.cancelPaymentLink(pendingAttempt.paymentLinkId);
+      await prisma.caseAuditLog.create({
+        data: {
+          caseId: matchedCase.id,
+          action: "PROVIDER_LINK_CANCELLED",
+          actorType: AuditActorType.SYSTEM,
+          reason: `Pending payment link cancelled due to duplicate race: ${cancelRes.status}`,
+          metadata: safeJson({ paymentLinkId: pendingAttempt.paymentLinkId, cancelRes }),
+        },
+      });
+    }
+
+    // C. Evaluate MerchantPolicy Auto-Refund OUT-OF-TRANSACTION
+    const policy = matchedCase.merchantPolicy;
+    const isAutoRefundAllowed =
+      policy?.autoRefundEnabled === true &&
+      (policy.autoRefundThresholdMinor === 0n || amountMinor <= policy.autoRefundThresholdMinor);
+
+    let createdRefundTask: RefundTask;
+
+    if (isAutoRefundAllowed) {
+      // Attempt out-of-transaction refund
+      const refundResult = await activeAdapter.createRefund({
+        paymentId: providerPaymentId,
+        amountMinor,
+        idempotencyKey,
+        speed: "normal",
+        notes: {
+          case_id: matchedCase.id,
+          reason: "adversarial_duplicate_race",
+        },
+      });
+
+      if (refundResult.success) {
+        createdRefundTask = await prisma.refundTask.create({
+          data: {
+            caseId: matchedCase.id,
+            paymentId: providerPaymentId,
+            amountMinor,
+            currency,
+            refundId: refundResult.refundId,
+            status: RefundStatus.PROCESSED,
+            idempotencyKey,
+            metadata: safeJson({
+              providerResponse: refundResult.rawResponse,
+              webhookEventId,
+            }),
+          },
+        });
+
+        await prisma.caseAuditLog.create({
+          data: {
+            caseId: matchedCase.id,
+            action: "AUTO_REFUND_EXECUTED",
+            actorType: AuditActorType.SYSTEM,
+            reason: `Auto-refund executed via provider adapter: refund ID ${refundResult.refundId}`,
+            metadata: safeJson({ refundId: refundResult.refundId, idempotencyKey }),
+          },
+        });
+      } else {
+        // Provider call failed: never assume success, record failure in MANUAL_REVIEW
+        createdRefundTask = await prisma.refundTask.create({
+          data: {
+            caseId: matchedCase.id,
+            paymentId: providerPaymentId,
+            amountMinor,
+            currency,
+            status: RefundStatus.MANUAL_REVIEW,
+            failureReason: refundResult.error || "Provider refund call failed",
+            idempotencyKey,
+            metadata: safeJson({
+              error: refundResult.error,
+              webhookEventId,
+            }),
+          },
+        });
+
+        await prisma.caseAuditLog.create({
+          data: {
+            caseId: matchedCase.id,
+            action: "AUTO_REFUND_FAILED_ROUTED_TO_MANUAL_REVIEW",
+            actorType: AuditActorType.SYSTEM,
+            reason: refundResult.error || "Provider refund call failed; routed to operator queue.",
+            metadata: safeJson({ error: refundResult.error, idempotencyKey }),
+          },
+        });
+      }
+    } else {
+      // Auto-refund disabled or exceeded threshold: Queue for manual operator resolution
+      createdRefundTask = await prisma.refundTask.create({
+        data: {
+          caseId: matchedCase.id,
+          paymentId: providerPaymentId,
+          amountMinor,
+          currency,
+          status: RefundStatus.MANUAL_REVIEW,
+          failureReason: "Auto-refund disabled by merchant policy; manual operator review required.",
+          idempotencyKey,
+          metadata: safeJson({
+            policySettings: {
+              autoRefundEnabled: policy?.autoRefundEnabled ?? false,
+              threshold: policy?.autoRefundThresholdMinor?.toString() ?? "0",
+            },
+            webhookEventId,
+          }),
+        },
+      });
+
+      await prisma.caseAuditLog.create({
+        data: {
+          caseId: matchedCase.id,
+          action: "REFUND_QUEUED_FOR_MANUAL_REVIEW",
+          actorType: AuditActorType.SYSTEM,
+          reason: "Auto-refund is disabled by merchant policy; queued for operator resolution.",
+          metadata: safeJson({ idempotencyKey }),
+        },
+      });
+    }
+
+    return {
+      matched: true,
+      isDuplicate: false,
+      transitionedToRecovered: false,
+      caseRecord: updatedCase,
+      status: "DUPLICATE_RISK_FLAGGED",
+      reason: "Adversarial duplicate race detected and remediated via policy.",
+      refundTask: createdRefundTask,
+    };
+  }
+
+  // 4. Handle IDEMPOTENT_REPLAY
+  if (decision.classification === "IDEMPOTENT_REPLAY") {
     return {
       matched: true,
       isDuplicate: true,
       transitionedToRecovered: false,
-      caseRecord: currentCase,
-      attemptRecord: currentAttempt,
+      caseRecord: matchedCase,
+      attemptRecord: matchedAttempt || undefined,
       status: "ALREADY_RECOVERED",
-      reason: `Case ${currentCase.id} is already in RECOVERED state. Duplicate webhook acknowledged idempotently.`,
+      reason: `Case ${matchedCase.id} is already in RECOVERED state. Duplicate webhook acknowledged idempotently.`,
     };
   }
 
-  // 3. Check Authoritative Captured Status
-  // INVARIANT: Only payments with captured === true count as recovered money!
+  // 5. Handle Non-Captured Status Check
   const isCaptured = captured === true && (paymentStatus.toLowerCase() === "captured" || paymentStatus.toLowerCase() === "paid");
   if (!isCaptured) {
-    // Record audit observation but do NOT transition to RECOVERED
     await prisma.caseAuditLog.create({
       data: {
-        caseId: currentCase.id,
+        caseId: matchedCase.id,
         action: "RECOVERY_PAYMENT_NON_CAPTURED_EVENT",
         actorType: AuditActorType.SYSTEM,
         reason: `Provider webhook received status "${paymentStatus}" (captured: ${captured}); awaiting capture confirmation.`,
@@ -465,53 +736,48 @@ export async function reconcileRecoveryPayment(
       matched: true,
       isDuplicate: false,
       transitionedToRecovered: false,
-      caseRecord: currentCase,
-      attemptRecord: currentAttempt,
+      caseRecord: matchedCase,
+      attemptRecord: matchedAttempt || undefined,
       status: "NON_CAPTURED_IGNORED",
       reason: `Payment status "${paymentStatus}" with captured=${captured} is not authoritative captured settlement. Operational count only.`,
     };
   }
 
-  // 4. Amount and Currency Validation
-  const currencyMatches = currency.toUpperCase() === currentCase.currency.toUpperCase();
-  const amountSufficient = amountMinor >= currentCase.amountMinor;
-
-  if (!currencyMatches || !amountSufficient) {
-    // Mismatch fails closed to MANUAL_REVIEW
+  // 6. Handle AMOUNT_MISMATCH or POSSIBLE_DUPLICATE
+  if (decision.classification === "AMOUNT_MISMATCH" || decision.classification === "POSSIBLE_DUPLICATE") {
     const updatedCase = await prisma.$transaction(async (tx) => {
       const c = await tx.recoveryCase.update({
-        where: { id: currentCase.id },
+        where: { id: matchedCase.id },
         data: {
           status: CaseStatus.MANUAL_REVIEW,
-          version: currentCase.version + 1,
+          version: matchedCase.version + 1,
         },
       });
 
-      await tx.recoveryAttempt.update({
-        where: { id: currentAttempt.id },
-        data: {
-          status: AttemptStatus.FAILED,
-          errorMessage: `Amount/Currency mismatch: expected ${currentCase.amountMinor} ${currentCase.currency}, received ${amountMinor} ${currency}`,
-        },
-      });
+      if (matchedAttempt) {
+        await tx.recoveryAttempt.update({
+          where: { id: matchedAttempt.id },
+          data: {
+            status: AttemptStatus.FAILED,
+            errorMessage: `Amount/Currency mismatch: expected ${matchedCase.amountMinor} ${matchedCase.currency}, received ${amountMinor} ${currency}`,
+          },
+        });
+      }
 
       await tx.caseAuditLog.create({
         data: {
-          caseId: currentCase.id,
+          caseId: matchedCase.id,
           action: "RECOVERY_AMOUNT_MISMATCH_ROUTED_TO_MANUAL_REVIEW",
           actorType: AuditActorType.SYSTEM,
-          previousState: { status: currentCase.status, version: currentCase.version },
+          previousState: { status: matchedCase.status, version: matchedCase.version },
           newState: { status: CaseStatus.MANUAL_REVIEW, version: c.version },
-          reason: `Captured amount (${amountMinor} ${currency}) mismatched expected case amount (${currentCase.amountMinor} ${currentCase.currency}).`,
-          metadata: {
+          reason: `Captured payment (${amountMinor} ${currency}) mismatched expected case specifications.`,
+          metadata: safeJson({
             providerPaymentId,
             providerPaymentLinkId,
             webhookEventId,
-            expectedAmount: currentCase.amountMinor.toString(),
-            receivedAmount: amountMinor.toString(),
-            expectedCurrency: currentCase.currency,
-            receivedCurrency: currency,
-          },
+            decision,
+          }),
         },
       });
 
@@ -523,15 +789,25 @@ export async function reconcileRecoveryPayment(
       isDuplicate: false,
       transitionedToRecovered: false,
       caseRecord: updatedCase,
-      attemptRecord: currentAttempt,
+      attemptRecord: matchedAttempt || undefined,
       status: "MANUAL_REVIEW",
-      reason: `Amount/Currency mismatch: expected ${currentCase.amountMinor} ${currentCase.currency}, received ${amountMinor} ${currency}. Case routed to MANUAL_REVIEW.`,
+      reason: `Classification ${decision.classification}: routed to MANUAL_REVIEW.`,
     };
   }
 
-  // 5. Atomic Settlement Commit
+  // 7. Atomic Settlement Commit for MATCHED_RECOVERY_ATTEMPT
+  if (!matchedAttempt) {
+    return {
+      matched: false,
+      isDuplicate: false,
+      transitionedToRecovered: false,
+      status: "NO_MATCH",
+      reason: "No matched attempt found for final settlement.",
+    };
+  }
+
+  const currentAttempt = matchedAttempt;
   const settlementResult = await prisma.$transaction(async (tx) => {
-    // Update RecoveryAttempt to PAID
     const existingMeta = (currentAttempt.metadata || {}) as Record<string, unknown>;
     const updatedAttempt = await tx.recoveryAttempt.update({
       where: { id: currentAttempt.id },
@@ -548,26 +824,24 @@ export async function reconcileRecoveryPayment(
       },
     });
 
-    // Update RecoveryCase to RECOVERED
     const updatedCase = await tx.recoveryCase.update({
-      where: { id: currentCase.id },
+      where: { id: matchedCase.id },
       data: {
         status: CaseStatus.RECOVERED,
         recoveredAt: new Date(),
-        version: currentCase.version + 1,
+        version: matchedCase.version + 1,
       },
     });
 
-    // Create immutable audit log
     await tx.caseAuditLog.create({
       data: {
-        caseId: currentCase.id,
+        caseId: matchedCase.id,
         action: "RECOVERY_VERIFIED_AND_SETTLED",
         actorType: AuditActorType.SYSTEM,
         actorId: "razorpay_webhook_settlement",
         previousState: {
-          status: currentCase.status,
-          version: currentCase.version,
+          status: matchedCase.status,
+          version: matchedCase.version,
         },
         newState: {
           status: CaseStatus.RECOVERED,
@@ -601,4 +875,5 @@ export async function reconcileRecoveryPayment(
     reason: `Recovery payment ${providerPaymentId} verified and settled. Case transitioned to RECOVERED.`,
   };
 }
+
 

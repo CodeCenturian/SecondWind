@@ -33,6 +33,10 @@ export default function RootLayout({
                 Reconciliation
               </Link>
               <span style={{ color: "var(--text-muted)" }}>•</span>
+              <Link href="/duplicates" style={{ color: "#f87171", fontWeight: 600, fontSize: "0.875rem" }}>
+                Duplicate Queue
+              </Link>
+              <span style={{ color: "var(--text-muted)" }}>•</span>
               <span style={{ color: "#10b981", fontSize: "0.75rem", background: "rgba(16, 185, 129, 0.12)", border: "1px solid rgba(16, 185, 129, 0.3)", padding: "0.2rem 0.6rem", borderRadius: "9999px" }}>
                 ● Razorpay Test Mode
               </span>

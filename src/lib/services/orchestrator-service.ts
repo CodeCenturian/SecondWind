@@ -60,6 +60,8 @@ export async function executeRecoveryAction(
         orderBy: { attemptNumber: "asc" },
       },
       merchantPolicy: true,
+      auditLogs: true,
+      refundTasks: true,
     },
   });
 
@@ -72,6 +74,18 @@ export async function executeRecoveryAction(
     throw new ConcurrencyConflictError(caseId, expectedVersion, currentCase.version);
   }
 
+  // Compute duplicate risk status from case state, refund tasks, and audit logs
+  const isDuplicateRisk = Boolean(
+    (currentCase.refundTasks && currentCase.refundTasks.length > 0) ||
+    (currentCase.auditLogs &&
+      currentCase.auditLogs.some(
+        (l) =>
+          l.action.includes("DUPLICATE_RACE") ||
+          l.action.includes("ADVERSARIAL") ||
+          l.action.includes("DUPLICATE_RISK")
+      ))
+  );
+
   // 3. Idempotency Check: check if this idempotency key was already executed
   const existingAttempt = currentCase.attempts.find((att) => {
     const meta = att.metadata as Record<string, unknown> | null;
@@ -79,7 +93,7 @@ export async function executeRecoveryAction(
   });
 
   if (existingAttempt) {
-    // Return existing attempt idempotently without re-running provider call
+    // Replay evaluation idempotently
     const evaluationInput: PolicyEvaluationInput = {
       caseId: currentCase.id,
       caseStatus: currentCase.status,
@@ -87,13 +101,13 @@ export async function executeRecoveryAction(
       amountMinor: currentCase.amountMinor,
       currency: currentCase.currency,
       merchantPolicy: {
-        policyId: currentCase.merchantPolicy?.id || "default",
+        policyId: currentCase.merchantPolicy?.id ?? "default",
         policyVersion: 1,
         isActive: true,
         maxAttempts: currentCase.merchantPolicy?.maxAttempts ?? 3,
         coolingPeriodMinutes: currentCase.merchantPolicy?.coolingPeriodMinutes ?? 30,
         linkExpiryMinutes: currentCase.merchantPolicy?.linkExpiryMinutes ?? 1440,
-        supportedCurrencies: ["INR"],
+        supportedCurrencies: ["INR", "USD"],
         allowedChannels: currentCase.merchantPolicy?.preferredChannels ?? [
           AttemptChannel.PAYMENT_LINK,
           AttemptChannel.EMAIL,
@@ -113,7 +127,7 @@ export async function executeRecoveryAction(
         confidence: 0.95,
         isRecoverable: true,
       },
-      duplicateRiskDetected: false,
+      duplicateRiskDetected: isDuplicateRisk,
       hasCustomerContact: Boolean(currentCase.customerEmail || currentCase.customerPhone),
       hasOrderOrPaymentRef: Boolean(currentCase.paymentId || currentCase.orderId),
     };
@@ -175,7 +189,7 @@ export async function executeRecoveryAction(
       isRecoverable: true,
       explanation: currentCase.failureReason || undefined,
     },
-    duplicateRiskDetected: false,
+    duplicateRiskDetected: isDuplicateRisk,
     hasCustomerContact: Boolean(currentCase.customerEmail || currentCase.customerPhone),
     hasOrderOrPaymentRef: Boolean(currentCase.paymentId || currentCase.orderId),
   };

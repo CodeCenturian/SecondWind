@@ -1,4 +1,4 @@
-import { PrismaClient, CaseStatus, AttemptStatus } from "@prisma/client";
+import { PrismaClient, CaseStatus, AttemptStatus, RefundStatus } from "@prisma/client";
 
 /**
  * Strict Single Financial Evidence Scope Metrics.
@@ -23,6 +23,12 @@ export interface FinancialAccountingMetrics {
   manualReviewCasesCount: number;
   closedOrFailedCasesCount: number;
   verifiedWebhookEventsCount: number;
+
+  // REMEDIATION & DUPLICATE RISK SCOPE
+  duplicateRiskCasesCount: number;
+  pendingRefundTasksCount: number;
+  processedRefundsCount: number;
+  processedRefundsAmountMinor: bigint;
 }
 
 export interface ReconciliationLedgerItem {
@@ -45,6 +51,25 @@ export interface ReconciliationLedgerItem {
   verifiedCapturedAmountMinor: bigint | null;
   auditLogCount: number;
   customerEmail: string | null;
+  hasDuplicateRisk: boolean;
+  refundStatus: RefundStatus | null;
+}
+
+export interface DuplicateQueueItem {
+  caseId: string;
+  originalPaymentId: string;
+  orderId: string | null;
+  amountMinor: bigint;
+  currency: string;
+  caseStatus: CaseStatus;
+  detectedAt: Date;
+  recoveredAt: Date | null;
+  refundTaskId: string | null;
+  refundStatus: RefundStatus | null;
+  refundPaymentId: string | null;
+  refundId: string | null;
+  failureReason: string | null;
+  createdAt: Date;
 }
 
 /**
@@ -58,6 +83,7 @@ export async function getAccountingMetrics(
     allCases,
     attemptsCount,
     webhookCount,
+    refundTasks,
   ] = await Promise.all([
     prisma.recoveryCase.findMany({
       select: {
@@ -71,26 +97,52 @@ export async function getAccountingMetrics(
             metadata: true,
           },
         },
+        auditLogs: {
+          select: {
+            action: true,
+          },
+        },
+        refundTasks: {
+          select: {
+            id: true,
+            status: true,
+            amountMinor: true,
+          },
+        },
       },
     }),
     prisma.recoveryAttempt.count(),
     prisma.webhookEvent.count(),
+    prisma.refundTask && prisma.refundTask.findMany ? prisma.refundTask.findMany() : Promise.resolve([]),
   ]);
 
   let verifiedRecoveredAmountMinor = 0n;
   let verifiedRecoveredCount = 0;
   let totalDetectedVolumeMinor = 0n;
-  let totalDetectedCount = allCases.length;
+  let totalDetectedCount = (allCases || []).length;
   let inProgressCasesCount = 0;
   let manualReviewCasesCount = 0;
   let closedOrFailedCasesCount = 0;
+  let duplicateRiskCasesCount = 0;
 
-  for (const c of allCases) {
+  for (const c of allCases || []) {
     totalDetectedVolumeMinor += c.amountMinor;
+
+    const caseRefunds = c.refundTasks || [];
+    const caseAudits = c.auditLogs || [];
+    const caseAttempts = c.attempts || [];
+
+    const hasDuplicateRisk =
+      caseRefunds.length > 0 ||
+      caseAudits.some((l) => l.action.includes("DUPLICATE_RACE") || l.action.includes("ADVERSARIAL"));
+
+    if (hasDuplicateRisk) {
+      duplicateRiskCasesCount += 1;
+    }
 
     if (c.status === CaseStatus.RECOVERED) {
       // Confirm at least one attempt is PAID with captured metadata
-      const hasPaidAttempt = c.attempts.some((a) => a.status === AttemptStatus.PAID);
+      const hasPaidAttempt = caseAttempts.some((a) => a.status === AttemptStatus.PAID);
       if (hasPaidAttempt) {
         verifiedRecoveredAmountMinor += c.amountMinor;
         verifiedRecoveredCount += 1;
@@ -104,6 +156,19 @@ export async function getAccountingMetrics(
     }
   }
 
+  let pendingRefundTasksCount = 0;
+  let processedRefundsCount = 0;
+  let processedRefundsAmountMinor = 0n;
+
+  for (const rt of refundTasks) {
+    if (rt.status === RefundStatus.PENDING || rt.status === RefundStatus.MANUAL_REVIEW || rt.status === RefundStatus.PROCESSING) {
+      pendingRefundTasksCount += 1;
+    } else if (rt.status === RefundStatus.PROCESSED) {
+      processedRefundsCount += 1;
+      processedRefundsAmountMinor += rt.amountMinor;
+    }
+  }
+
   return {
     verifiedRecoveredAmountMinor,
     verifiedRecoveredCount,
@@ -114,6 +179,10 @@ export async function getAccountingMetrics(
     manualReviewCasesCount,
     closedOrFailedCasesCount,
     verifiedWebhookEventsCount: webhookCount,
+    duplicateRiskCasesCount,
+    pendingRefundTasksCount,
+    processedRefundsCount,
+    processedRefundsAmountMinor,
   };
 }
 
@@ -131,7 +200,11 @@ export async function getReconciliationLedger(
         orderBy: { attemptNumber: "desc" },
       },
       auditLogs: {
-        select: { id: true },
+        select: { id: true, action: true },
+      },
+      refundTasks: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
       },
     },
   });
@@ -146,6 +219,15 @@ export async function getReconciliationLedger(
     const webhookEventId = typeof meta["webhookEventId"] === "string" ? meta["webhookEventId"] : null;
     const capturedAmountStr = typeof meta["capturedAmountMinor"] === "string" ? meta["capturedAmountMinor"] : null;
     const verifiedCapturedAmountMinor = capturedAmountStr ? BigInt(capturedAmountStr) : (c.status === CaseStatus.RECOVERED ? c.amountMinor : null);
+
+    const caseRefunds = c.refundTasks || [];
+    const caseAudits = c.auditLogs || [];
+
+    const hasDuplicateRisk =
+      caseRefunds.length > 0 ||
+      caseAudits.some((l) => l.action.includes("DUPLICATE_RACE") || l.action.includes("ADVERSARIAL"));
+
+    const latestRefund = caseRefunds[0];
 
     return {
       caseId: c.id,
@@ -167,6 +249,39 @@ export async function getReconciliationLedger(
       verifiedCapturedAmountMinor,
       auditLogCount: c.auditLogs.length,
       customerEmail: c.customerEmail,
+      hasDuplicateRisk,
+      refundStatus: latestRefund?.status || null,
     };
   });
+}
+
+/**
+ * Returns duplicate race conflict cases and active refund tasks for operator resolution.
+ */
+export async function getDuplicateResolutionQueue(
+  prisma: PrismaClient
+): Promise<DuplicateQueueItem[]> {
+  const refundTasks = await prisma.refundTask.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      recoveryCase: true,
+    },
+  });
+
+  return refundTasks.map((rt) => ({
+    caseId: rt.caseId || "unlinked",
+    originalPaymentId: rt.recoveryCase?.paymentId || rt.paymentId,
+    orderId: rt.recoveryCase?.orderId || null,
+    amountMinor: rt.amountMinor,
+    currency: rt.currency,
+    caseStatus: rt.recoveryCase?.status || CaseStatus.MANUAL_REVIEW,
+    detectedAt: rt.recoveryCase?.createdAt || rt.createdAt,
+    recoveredAt: rt.recoveryCase?.recoveredAt || null,
+    refundTaskId: rt.id,
+    refundStatus: rt.status,
+    refundPaymentId: rt.paymentId,
+    refundId: rt.refundId,
+    failureReason: rt.failureReason,
+    createdAt: rt.createdAt,
+  }));
 }

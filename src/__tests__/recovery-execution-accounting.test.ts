@@ -114,7 +114,12 @@ describe("Recovery Execution, Authoritative Webhook Settlement & Accounting Inva
           const caseRecord = mockCasesStore.find((c) => c.id === found.caseId);
           return {
             ...found,
-            recoveryCase: caseRecord,
+            recoveryCase: {
+              ...caseRecord,
+              attempts: mockAttemptsStore.filter((a) => a.caseId === caseRecord.id),
+              auditLogs: mockAuditStore.filter((l) => l.caseId === caseRecord.id),
+              merchantPolicy: { ...mockMerchantPolicy },
+            },
           };
         },
         findMany: async (args?: any) => {
@@ -125,8 +130,16 @@ describe("Recovery Execution, Authoritative Webhook Settlement & Accounting Inva
             );
             return matches.map((m) => ({
               ...m,
-              recoveryCase: mockCasesStore.find((c) => c.id === m.caseId),
+              recoveryCase: {
+                ...mockCasesStore.find((c) => c.id === m.caseId),
+                attempts: mockAttemptsStore.filter((a) => a.caseId === m.caseId),
+                auditLogs: mockAuditStore.filter((l) => l.caseId === m.caseId),
+                merchantPolicy: { ...mockMerchantPolicy },
+              },
             }));
+          }
+          if (args?.where?.caseId) {
+            return mockAttemptsStore.filter((a) => a.caseId === args.where.caseId);
           }
           return mockAttemptsStore;
         },

@@ -35,9 +35,38 @@ export interface ProviderPaymentStatusResult {
   error?: string;
 }
 
+export interface CancelPaymentLinkResult {
+  success: boolean;
+  paymentLinkId: string;
+  status: string;
+  error?: string;
+  rawResponse?: Record<string, unknown>;
+}
+
+export interface CreateRefundParams {
+  paymentId: string;
+  amountMinor: bigint | number;
+  idempotencyKey?: string;
+  speed?: "normal" | "optimum";
+  notes?: Record<string, string>;
+  receipt?: string;
+}
+
+export interface ProviderRefundResult {
+  success: boolean;
+  refundId: string;
+  paymentId: string;
+  amountMinor: bigint;
+  status: string;
+  error?: string;
+  rawResponse?: Record<string, unknown>;
+}
+
 export interface ProviderAdapter {
   createPaymentLink(params: CreatePaymentLinkParams): Promise<ProviderPaymentLinkResult>;
   fetchPaymentStatus(paymentId: string): Promise<ProviderPaymentStatusResult>;
+  cancelPaymentLink(paymentLinkId: string): Promise<CancelPaymentLinkResult>;
+  createRefund(params: CreateRefundParams): Promise<ProviderRefundResult>;
 }
 
 /**
@@ -178,6 +207,102 @@ export class RazorpayAdapter implements ProviderAdapter {
       };
     }
   }
+
+  async cancelPaymentLink(paymentLinkId: string): Promise<CancelPaymentLinkResult> {
+    try {
+      const response = await fetch(`${this.baseUrl}/payment_links/${paymentLinkId}/cancel`, {
+        method: "POST",
+        headers: {
+          Authorization: this.getAuthHeader(),
+          "Content-Type": "application/json",
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          success: false,
+          paymentLinkId,
+          status: "FAILED",
+          error: data?.error?.description || `HTTP ${response.status}`,
+          rawResponse: data,
+        };
+      }
+
+      return {
+        success: true,
+        paymentLinkId: data.id,
+        status: data.status || "cancelled",
+        rawResponse: data,
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        paymentLinkId,
+        status: "NETWORK_ERROR",
+        error: err instanceof Error ? err.message : "Cancel payment link network failure",
+      };
+    }
+  }
+
+  async createRefund(params: CreateRefundParams): Promise<ProviderRefundResult> {
+    const payload = {
+      amount: Number(params.amountMinor),
+      speed: params.speed || "normal",
+      notes: params.notes || {},
+      receipt: params.receipt,
+    };
+
+    const headers: Record<string, string> = {
+      Authorization: this.getAuthHeader(),
+      "Content-Type": "application/json",
+    };
+
+    if (params.idempotencyKey) {
+      headers["X-Razorpay-Idempotency-Key"] = params.idempotencyKey;
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/payments/${params.paymentId}/refund`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          success: false,
+          refundId: "",
+          paymentId: params.paymentId,
+          amountMinor: BigInt(params.amountMinor),
+          status: "FAILED",
+          error: data?.error?.description || `HTTP ${response.status}`,
+          rawResponse: data,
+        };
+      }
+
+      return {
+        success: true,
+        refundId: data.id,
+        paymentId: data.payment_id || params.paymentId,
+        amountMinor: BigInt(data.amount),
+        status: data.status || "processed",
+        rawResponse: data,
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        refundId: "",
+        paymentId: params.paymentId,
+        amountMinor: BigInt(params.amountMinor),
+        status: "NETWORK_ERROR",
+        error: err instanceof Error ? err.message : "Refund network failure",
+      };
+    }
+  }
 }
 
 /**
@@ -185,7 +310,10 @@ export class RazorpayAdapter implements ProviderAdapter {
  */
 export class FakeRazorpayAdapter implements ProviderAdapter {
   public createdLinks: Map<string, ProviderPaymentLinkResult> = new Map();
+  public cancelledLinks: Set<string> = new Set();
+  public refunds: Map<string, ProviderRefundResult> = new Map();
   public shouldSimulateError: boolean = false;
+  public shouldSimulateRefundError: boolean = false;
   public simulatedErrorMessage: string = "Simulated provider error";
 
   async createPaymentLink(params: CreatePaymentLinkParams): Promise<ProviderPaymentLinkResult> {
@@ -236,5 +364,55 @@ export class FakeRazorpayAdapter implements ProviderAdapter {
       captured: true,
       rawResponse: { id: paymentId, status: "captured", captured: true },
     };
+  }
+
+  async cancelPaymentLink(paymentLinkId: string): Promise<CancelPaymentLinkResult> {
+    if (this.shouldSimulateError) {
+      return {
+        success: false,
+        paymentLinkId,
+        status: "FAILED",
+        error: this.simulatedErrorMessage,
+      };
+    }
+
+    this.cancelledLinks.add(paymentLinkId);
+    return {
+      success: true,
+      paymentLinkId,
+      status: "cancelled",
+      rawResponse: { id: paymentLinkId, status: "cancelled" },
+    };
+  }
+
+  async createRefund(params: CreateRefundParams): Promise<ProviderRefundResult> {
+    if (this.shouldSimulateRefundError || this.shouldSimulateError) {
+      return {
+        success: false,
+        refundId: "",
+        paymentId: params.paymentId,
+        amountMinor: BigInt(params.amountMinor),
+        status: "FAILED",
+        error: this.simulatedErrorMessage,
+      };
+    }
+
+    const refundId = `rfnd_test_${Math.random().toString(36).slice(2, 11)}`;
+    const result: ProviderRefundResult = {
+      success: true,
+      refundId,
+      paymentId: params.paymentId,
+      amountMinor: BigInt(params.amountMinor),
+      status: "processed",
+      rawResponse: {
+        id: refundId,
+        payment_id: params.paymentId,
+        amount: Number(params.amountMinor),
+        status: "processed",
+      },
+    };
+
+    this.refunds.set(params.idempotencyKey || refundId, result);
+    return result;
   }
 }

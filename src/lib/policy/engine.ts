@@ -98,6 +98,16 @@ export function evaluateRecoveryPolicy(input: PolicyEvaluationInput): PolicyDeci
     );
   }
 
+  // 3.1 Duplicate Risk Check (Adversarial Payment-Race Protection)
+  if (input.duplicateRiskDetected) {
+    return makeDecision(
+      "MANUAL_REVIEW",
+      ["DUPLICATE_PAYMENT_RISK", "ADVERSARIAL_DUPLICATE_RACE_ACTIVE"],
+      "Adversarial payment race condition or duplicate risk detected. Recovery action blocked; routed to manual review.",
+      false
+    );
+  }
+
   // 4. Do-Not-Contact / Customer Opt-Out Check
   if (input.isDoNotContact) {
     return makeDecision(
