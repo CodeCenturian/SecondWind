@@ -1,4 +1,6 @@
+import React from "react";
 import { CaseStatus } from "@prisma/client";
+import { Check } from "lucide-react";
 
 interface StateFlowProps {
   status: CaseStatus;
@@ -7,8 +9,8 @@ interface StateFlowProps {
 }
 
 export function StateFlowDiagram({ status, attemptsCount, hasDuplicateRisk }: StateFlowProps) {
-  // Determine active stage
-  let activeStage = 1; // 1: Detected, 2: Policy, 3: Attempt, 4: Settled / Stopped, 5: Audit & Safety
+  // Determine active stage (1 to 5)
+  let activeStage = 1;
 
   if (status === CaseStatus.RECOVERED) {
     activeStage = 4;
@@ -21,44 +23,38 @@ export function StateFlowDiagram({ status, attemptsCount, hasDuplicateRisk }: St
   }
 
   const STAGES = [
-    { num: 1, label: "Detected Risk", sub: "Ingested Failure" },
-    { num: 2, label: "Bounded Policy", sub: "Deterministic Rules" },
-    { num: 3, label: "Recovery Attempt", sub: "Provider Link" },
+    { num: 1, label: "1. Ingested Risk", sub: "Webhook Ingestion" },
+    { num: 2, label: "2. Bounded Policy", sub: "Deterministic Rules" },
+    { num: 3, label: "3. Outbound Attempt", sub: "Provider Link" },
     {
       num: 4,
-      label: status === CaseStatus.RECOVERED ? "Captured Settlement" : "Manual Review / Stopped",
-      sub: status === CaseStatus.RECOVERED ? "Verified Captured" : "Policy Halted",
+      label: status === CaseStatus.RECOVERED ? "4. Captured Settlement" : "4. Manual Review / Stop",
+      sub: status === CaseStatus.RECOVERED ? "HMAC Verified" : "Policy Halted",
     },
-    { num: 5, label: "Audit & Race Safety", sub: "Provenance Chain" },
+    { num: 5, label: "5. Audit Provenance", sub: "Immutable Trail" },
   ];
 
   return (
     <div
       role="region"
       aria-label="Recovery Lifecycle State Flow"
-      className="glass-card"
-      style={{
-        padding: "1.25rem 1.5rem",
-        marginBottom: "1.75rem",
-        border: "1px solid rgba(255, 255, 255, 0.08)",
-      }}
+      className="ops-panel rhythm-24"
+      style={{ padding: "var(--space-4)" }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-        <h3 style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "var(--space-3)",
+        }}
+      >
+        <span className="text-caption" style={{ fontWeight: 700 }}>
           Deterministic Lifecycle Stage
-        </h3>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
           {hasDuplicateRisk && (
-            <span
-              style={{
-                fontSize: "0.6875rem",
-                color: "#f87171",
-                background: "rgba(239, 68, 68, 0.15)",
-                padding: "0.2rem 0.5rem",
-                borderRadius: "9999px",
-                fontWeight: 700,
-              }}
-            >
+            <span className="badge-base badge-danger">
               DUPLICATE RISK LOCKED
             </span>
           )}
@@ -68,88 +64,99 @@ export function StateFlowDiagram({ status, attemptsCount, hasDuplicateRisk }: St
         </div>
       </div>
 
-      {/* Accessible Flow Stepper */}
+      {/* Flat Stage Stepper Grid */}
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          position: "relative",
-          gap: "0.5rem",
-          flexWrap: "wrap",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+          gap: "8px",
         }}
       >
         {STAGES.map((s) => {
           const isPassed = s.num < activeStage || (s.num === 4 && status === CaseStatus.RECOVERED);
           const isCurrent = s.num === activeStage;
 
-          let badgeColor = "rgba(255, 255, 255, 0.1)";
+          let borderColor = "var(--border-subtle)";
+          let bg = "var(--bg-app)";
           let textColor = "var(--text-muted)";
-          let borderColor = "var(--border-color)";
 
-          if (isCurrent) {
+          if (isPassed) {
+            borderColor = "var(--success-border)";
+            bg = "var(--success-subtle)";
+            textColor = "var(--success-text)";
+          } else if (isCurrent) {
             if (status === CaseStatus.RECOVERED) {
-              badgeColor = "rgba(16, 185, 129, 0.2)";
-              textColor = "#34d399";
-              borderColor = "#10b981";
+              borderColor = "var(--success-border)";
+              bg = "var(--success-subtle)";
+              textColor = "var(--success-text)";
             } else if (status === CaseStatus.MANUAL_REVIEW) {
-              badgeColor = "rgba(245, 158, 11, 0.2)";
-              textColor = "#fbbf24";
-              borderColor = "#f59e0b";
+              borderColor = "var(--warning-border)";
+              bg = "var(--warning-subtle)";
+              textColor = "var(--warning-text)";
             } else {
-              badgeColor = "rgba(99, 102, 241, 0.2)";
+              borderColor = "var(--accent-border)";
+              bg = "var(--accent-subtle)";
               textColor = "var(--accent-primary)";
-              borderColor = "var(--accent-primary)";
             }
-          } else if (isPassed) {
-            badgeColor = "rgba(16, 185, 129, 0.12)";
-            textColor = "#34d399";
-            borderColor = "rgba(16, 185, 129, 0.3)";
           }
 
           return (
             <div
               key={s.num}
               style={{
+                background: bg,
+                border: `1px solid ${borderColor}`,
+                borderRadius: "var(--radius-sm)",
+                padding: "8px 10px",
                 display: "flex",
                 flexDirection: "column",
-                alignItems: "center",
-                textAlign: "center",
-                flex: "1 1 0",
-                minWidth: "110px",
+                gap: "2px",
               }}
             >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div
+                  style={{
+                    width: "18px",
+                    height: "18px",
+                    borderRadius: "50%",
+                    background: isPassed ? "var(--success-primary)" : "var(--bg-app)",
+                    color: isPassed ? "#040806" : textColor,
+                    border: `1px solid ${borderColor}`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "0.625rem",
+                    fontWeight: 700,
+                  }}
+                >
+                  {isPassed ? <Check size={11} strokeWidth={3} /> : s.num}
+                </div>
+                {isCurrent && (
+                  <span
+                    style={{
+                      fontSize: "0.5625rem",
+                      fontWeight: 700,
+                      color: textColor,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    Active
+                  </span>
+                )}
+              </div>
               <div
                 style={{
-                  width: "2.25rem",
-                  height: "2.25rem",
-                  borderRadius: "50%",
-                  background: badgeColor,
-                  border: `2px solid ${borderColor}`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: 700,
-                  fontSize: "0.8125rem",
-                  color: textColor,
-                  marginBottom: "0.35rem",
-                  transition: "all 0.2s ease-in-out",
-                }}
-              >
-                {isPassed ? "✓" : s.num}
-              </div>
-              <span
-                style={{
-                  fontSize: "0.8125rem",
+                  fontSize: "0.75rem",
                   fontWeight: isCurrent ? 700 : 500,
-                  color: isCurrent ? "#fff" : textColor,
+                  color: isCurrent ? "var(--text-primary)" : textColor,
                 }}
               >
                 {s.label}
-              </span>
-              <span style={{ fontSize: "0.6875rem", color: "var(--text-muted)", marginTop: "0.1rem" }}>
+              </div>
+              <div style={{ fontSize: "0.6875rem", color: "var(--text-muted)" }}>
                 {s.sub}
-              </span>
+              </div>
             </div>
           );
         })}

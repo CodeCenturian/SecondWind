@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db";
-import { formatMoney } from "@/lib/money";
+import { PageHeader } from "@/components/page-header";
+import { MoneyValue } from "@/components/money-value";
+import { CaseStateBadge, EvidenceSourceBadge } from "@/components/badges";
+import { EmptyState } from "@/components/states";
 import { getReconciliationLedger } from "@/lib/services/accounting-service";
 import Link from "next/link";
 
@@ -17,247 +20,190 @@ export default async function ReconciliationPage() {
   const manualReviewCount = ledger.filter((item) => item.caseStatus === "MANUAL_REVIEW").length;
 
   return (
-    <div style={{ marginTop: "2rem" }}>
-      {/* Header Banner */}
+    <div>
+      {/* 1. Page Header */}
+      <PageHeader
+        title="Operator Reconciliation & Provenance Ledger"
+        subtitle="Cryptographically verified mathematical proof linking detected payment failures, outbound recovery payment links, provider payment IDs, verified webhook payloads, and settled ledger amounts."
+        badge={
+          <span className="badge-base badge-recovered">
+            ● Strict HMAC Verification
+          </span>
+        }
+      />
+
+      {/* Safety Invariant Notice */}
       <div
         style={{
+          background: "var(--bg-surface)",
+          border: "1px solid var(--border-default)",
+          borderLeft: "3px solid var(--success-primary)",
+          borderRadius: "var(--radius-md)",
+          padding: "8px var(--space-4)",
+          marginBottom: "var(--space-6)",
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "flex-start",
-          marginBottom: "1.5rem",
+          alignItems: "center",
           flexWrap: "wrap",
-          gap: "1rem",
+          gap: "8px",
+          fontSize: "0.75rem",
         }}
       >
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-            <h1 style={{ fontSize: "1.75rem", fontWeight: 700, color: "#fff" }}>
-              Operator Reconciliation Ledger
-            </h1>
-            <span
-              style={{
-                background: "rgba(16, 185, 129, 0.15)",
-                border: "1px solid rgba(16, 185, 129, 0.3)",
-                borderRadius: "9999px",
-                padding: "0.25rem 0.75rem",
-                fontSize: "0.75rem",
-                fontWeight: 700,
-                color: "#34d399",
-              }}
-            >
-              PROVENANCE AUDIT ENGINE
+        <span style={{ color: "var(--text-secondary)" }}>
+          <strong>Single-Evidence Financial Invariant:</strong> Only HMAC-verified captured recovery payments count toward recovered revenue.
+        </span>
+        <span className="code-inline">Zero Simulation Contamination</span>
+      </div>
+
+      {/* 2. Metrics Row */}
+      <div className="metrics-row rhythm-24">
+        <div className="ops-panel" style={{ borderLeft: "3px solid var(--success-primary)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-2)" }}>
+            <span className="text-caption" style={{ color: "var(--success-text)", fontWeight: 700 }}>
+              Verified Recovered Total
             </span>
+            <EvidenceSourceBadge scope="FINANCIAL_SCOPE" />
           </div>
-          <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginTop: "0.35rem" }}>
-            End-to-end mathematical verification linking failed transactions, dispatched payment links, provider payment IDs, verified webhook events, and settled amounts.
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--success-text)", margin: "4px 0" }}>
+            <MoneyValue amountMinor={totalRecoveredMinor} currency="INR" />
+          </div>
+          <p style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+            {recoveredCount} case(s) with verified captured recovery payments
           </p>
         </div>
 
-        <div className="badge badge-disclaimer">
-          🔒 Financial Invariant: Only HMAC-verified captured payments count toward recovered revenue
-        </div>
-      </div>
-
-      {/* Reconciliation Summary Metrics */}
-      <div className="metrics-grid" style={{ marginBottom: "2rem" }}>
-        <div
-          className="glass-card"
-          style={{
-            border: "1px solid rgba(16, 185, 129, 0.3)",
-            background: "linear-gradient(180deg, rgba(16, 185, 129, 0.06) 0%, rgba(15, 23, 42, 0.6) 100%)",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
-              Verified Recovered Total
-            </span>
-            <span className="badge badge-recovered" style={{ fontSize: "0.6875rem" }}>
-              FINANCIAL SCOPE
-            </span>
+        <div className="ops-panel">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-2)" }}>
+            <span className="text-caption">Active Recovery Pipeline</span>
+            <EvidenceSourceBadge scope="OPERATIONAL_ONLY" label="PIPELINE" />
           </div>
-          <div className="metric-value" style={{ color: "#34d399" }}>
-            {formatMoney(totalRecoveredMinor, "INR")}
-          </div>
-          <div className="metric-sub" style={{ marginTop: "0.5rem", color: "var(--text-secondary)" }}>
-            {recoveredCount} case(s) with verified captured payments
-          </div>
-        </div>
-
-        <div className="glass-card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
-              Active Recovery Pipeline
-            </span>
-            <span className="badge badge-detected" style={{ fontSize: "0.6875rem" }}>
-              OPERATIONAL
-            </span>
-          </div>
-          <div className="metric-value" style={{ color: "#60a5fa" }}>
+          <div className="text-mono" style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--accent-primary)", margin: "4px 0" }}>
             {inProgressCount}
           </div>
-          <div className="metric-sub" style={{ marginTop: "0.5rem" }}>
-            Payment links active; awaiting customer checkout
-          </div>
+          <p style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+            Active payment links awaiting customer payment
+          </p>
         </div>
 
-        <div className="glass-card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
-              Manual Review Queue
-            </span>
-            <span className="badge badge-system-neutral" style={{ fontSize: "0.6875rem" }}>
-              OPERATIONAL
-            </span>
+        <div className="ops-panel">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-2)" }}>
+            <span className="text-caption">Manual Review Queue</span>
+            <EvidenceSourceBadge scope="OPERATIONAL_ONLY" label="HELD" />
           </div>
-          <div className="metric-value" style={{ color: "#fbbf24" }}>
+          <div className="text-mono" style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--warning-text)", margin: "4px 0" }}>
             {manualReviewCount}
           </div>
-          <div className="metric-sub" style={{ marginTop: "0.5rem" }}>
-            Amount/currency mismatch or ambiguous failures
-          </div>
+          <p style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+            Amount/currency mismatch or ambiguous failure codes
+          </p>
         </div>
       </div>
 
-      {/* Provenance Reconciliation Ledger Table */}
-      <div className="glass-card" style={{ padding: "1.5rem", marginBottom: "2rem" }}>
+      {/* 3. Provenance Chain Table */}
+      <div className="ops-panel" style={{ padding: "0" }}>
         <div
           style={{
+            padding: "var(--space-4) var(--space-5)",
+            borderBottom: "1px solid var(--border-subtle)",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: "1.25rem",
             flexWrap: "wrap",
-            gap: "0.75rem",
+            gap: "var(--space-2)",
           }}
         >
           <div>
-            <h2 style={{ fontSize: "1.125rem", fontWeight: 600, color: "#fff" }}>
-              Transaction Provenance Chain ({ledger.length})
-            </h2>
-            <p style={{ color: "var(--text-muted)", fontSize: "0.8125rem", marginTop: "0.25rem" }}>
-              Direct cross-verification: Case ID → Attempt → Provider Link ID → Captured Payment ID → Webhook Event ID → Counted Rupee.
+            <h2 className="text-h2">Transaction Provenance Verification Chain ({ledger.length})</h2>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginTop: "2px" }}>
+              Case ID → Attempt → Provider Link ID → Captured Payment ID → Webhook Event ID → Counted Rupee.
             </p>
           </div>
-          <span className="code-pill">Immutable Audit Trail Active</span>
+          <span className="code-inline">Immutable Provenance Active</span>
         </div>
 
         {ledger.length === 0 ? (
-          <div
-            style={{
-              padding: "3rem 1.5rem",
-              textAlign: "center",
-              color: "var(--text-muted)",
-              background: "rgba(255, 255, 255, 0.01)",
-              borderRadius: "0.5rem",
-              border: "1px dashed var(--border-color)",
-            }}
-          >
-            <p style={{ fontSize: "1rem", color: "var(--text-secondary)", marginBottom: "0.5rem" }}>
-              No transactions recorded in the reconciliation ledger.
-            </p>
-            <p style={{ fontSize: "0.8125rem" }}>
-              Deliver payment failures and process recoveries to view full end-to-end provenance.
-            </p>
+          <div style={{ padding: "var(--space-6)" }}>
+            <EmptyState
+              title="No reconciliation records found"
+              description="No transaction chains have been recorded yet. Ingest a webhook or simulate a scenario in the Developer Sandbox."
+              actionText="Open Event Injector"
+              actionHref="/dev/injector"
+            />
           </div>
         ) : (
-          <div className="table-container">
-            <table className="data-table">
+          <div className="ops-table-container" style={{ border: "none", borderRadius: "0" }}>
+            <table className="ops-table">
               <thead>
                 <tr>
                   <th>Case ID</th>
-                  <th>Original Payment ID</th>
-                  <th>Dispatched Link (plink_xxx)</th>
-                  <th>Captured Payment (pay_xxx)</th>
-                  <th>Webhook Event ID</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                  <th>Counted Recovered</th>
-                  <th>Audit Provenance</th>
+                  <th>Failed Payment ID</th>
+                  <th>Recovery Link ID</th>
+                  <th>Captured Payment ID</th>
+                  <th>Captured Event ID</th>
+                  <th>Original Amount</th>
+                  <th>Verified Amount</th>
+                  <th>Case Status</th>
+                  <th style={{ textAlign: "right" }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {ledger.map((row) => {
-                  const isRecovered = row.caseStatus === "RECOVERED";
+                {ledger.map((item) => {
+                  const isSettled = item.caseStatus === "RECOVERED";
 
                   return (
-                    <tr key={row.caseId}>
+                    <tr key={item.caseId}>
                       <td>
+                        <span className="code-inline">{item.caseId.slice(0, 8)}</span>
+                      </td>
+                      <td>
+                        <span className="code-inline">{item.originalPaymentId}</span>
+                      </td>
+                      <td>
+                        {item.providerPaymentLinkId ? (
+                          <span className="code-inline" style={{ color: "var(--accent-primary)" }}>
+                            {item.providerPaymentLinkId}
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)" }}>—</span>
+                        )}
+                      </td>
+                      <td>
+                        {item.providerCapturedPaymentId ? (
+                          <span className="code-inline" style={{ color: "var(--success-text)" }}>
+                            {item.providerCapturedPaymentId}
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)" }}>—</span>
+                        )}
+                      </td>
+                      <td>
+                        {item.verifiedWebhookEventId ? (
+                          <span className="code-inline" style={{ fontSize: "0.6875rem" }}>
+                            {item.verifiedWebhookEventId.slice(0, 10)}...
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)" }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                        <MoneyValue amountMinor={item.originalAmountMinor} currency={item.currency} />
+                      </td>
+                      <td style={{ fontWeight: 700, color: isSettled ? "var(--success-text)" : "var(--text-muted)" }}>
+                        {item.verifiedCapturedAmountMinor !== null ? (
+                          <MoneyValue amountMinor={item.verifiedCapturedAmountMinor} currency={item.currency} />
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td>
+                        <CaseStateBadge status={item.caseStatus} />
+                      </td>
+                      <td style={{ textAlign: "right" }}>
                         <Link
-                          href={`/cases/${row.caseId}`}
-                          style={{
-                            color: "var(--accent-primary)",
-                            fontWeight: 600,
-                            textDecoration: "underline",
-                          }}
+                          href={`/cases/${item.caseId}`}
+                          className="btn btn-secondary btn-sm"
                         >
-                          {row.caseId.slice(0, 8)}...
-                        </Link>
-                      </td>
-                      <td>
-                        <span className="code-pill">{row.originalPaymentId}</span>
-                      </td>
-                      <td>
-                        {row.providerPaymentLinkId ? (
-                          <span className="code-pill" style={{ color: "#60a5fa" }}>
-                            {row.providerPaymentLinkId}
-                          </span>
-                        ) : (
-                          <span style={{ color: "var(--text-muted)" }}>—</span>
-                        )}
-                      </td>
-                      <td>
-                        {row.providerCapturedPaymentId ? (
-                          <span className="code-pill" style={{ color: "#34d399" }}>
-                            {row.providerCapturedPaymentId}
-                          </span>
-                        ) : (
-                          <span style={{ color: "var(--text-muted)" }}>—</span>
-                        )}
-                      </td>
-                      <td>
-                        {row.verifiedWebhookEventId ? (
-                          <span className="code-pill">{row.verifiedWebhookEventId.slice(0, 14)}...</span>
-                        ) : (
-                          <span style={{ color: "var(--text-muted)" }}>—</span>
-                        )}
-                      </td>
-                      <td style={{ fontWeight: 600, color: "#fff" }}>
-                        {formatMoney(row.originalAmountMinor, row.currency)}
-                      </td>
-                      <td>
-                        <span
-                          className={`badge ${
-                            isRecovered
-                              ? "badge-recovered"
-                              : row.caseStatus === "MANUAL_REVIEW"
-                              ? "badge-detected"
-                              : "badge-system-neutral"
-                          }`}
-                        >
-                          {row.caseStatus}
-                        </span>
-                      </td>
-                      <td>
-                        {isRecovered ? (
-                          <span style={{ fontWeight: 700, color: "#34d399" }}>
-                            ✓ {formatMoney(row.verifiedCapturedAmountMinor || row.originalAmountMinor, row.currency)}
-                          </span>
-                        ) : (
-                          <span style={{ color: "var(--text-muted)" }}>₹0.00 (Unsettled)</span>
-                        )}
-                      </td>
-                      <td>
-                        <Link
-                          href={`/cases/${row.caseId}`}
-                          style={{
-                            color: "var(--text-secondary)",
-                            fontSize: "0.8125rem",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "0.25rem",
-                          }}
-                        >
-                          {row.auditLogCount} log(s) →
+                          Audit Case →
                         </Link>
                       </td>
                     </tr>
@@ -267,40 +213,6 @@ export default async function ReconciliationPage() {
             </table>
           </div>
         )}
-      </div>
-
-      {/* Accounting Integrity Principles */}
-      <div
-        className="glass-card"
-        style={{
-          border: "1px solid rgba(255, 255, 255, 0.08)",
-          padding: "1.25rem 1.5rem",
-        }}
-      >
-        <h3 style={{ fontSize: "0.9375rem", fontWeight: 600, color: "#fff", marginBottom: "0.5rem" }}>
-          Reconciliation & Accounting Invariants
-        </h3>
-        <ul
-          style={{
-            margin: 0,
-            paddingLeft: "1.25rem",
-            color: "var(--text-secondary)",
-            fontSize: "0.8125rem",
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.35rem",
-          }}
-        >
-          <li>
-            <strong>Single Financial Evidence Scope:</strong> Only transactions with an HMAC SHA-256 authenticated webhook confirming <code>captured: true</code> and exact amount/currency match are counted toward recovered revenue.
-          </li>
-          <li>
-            <strong>No Speculative Recognition:</strong> Dispatched payment links, awaiting checkouts, and manual-review cases are operational pipeline states only and do not alter recovered balance.
-          </li>
-          <li>
-            <strong>Idempotent Settlement:</strong> Duplicate capture webhooks are acknowledged without state changes or double counting.
-          </li>
-        </ul>
       </div>
     </div>
   );

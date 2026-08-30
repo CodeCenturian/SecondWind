@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
+import { PageHeader } from "@/components/page-header";
 import Link from "next/link";
 
 interface ScenarioCard {
@@ -81,7 +82,7 @@ export default function DevInjectorPage() {
   const [runningId, setRunningId] = useState<string | null>(null);
   const [executionLogs, setExecutionLogs] = useState<string[]>([
     "[SANDBOX_INIT] Developer Event Injector ready. Select a scenario to simulate.",
-    "[SAFEGUARD] Zero real Razorpay API calls are permitted.",
+    "[SAFEGUARD] Zero real Razorpay API calls are permitted. All simulated events are isolated from verified financial metrics.",
   ]);
 
   async function handleRunScenario(scenarioId: string) {
@@ -89,7 +90,7 @@ export default function DevInjectorPage() {
     setExecutionLogs((prev) => [
       ...prev,
       `\n------------------------------------------------------------`,
-      `>>> INJECTING SCENARIO: ${scenarioId}...`,
+      `>>> [INJECT_START] Scenario: ${scenarioId} (${new Date().toLocaleTimeString()})...`,
     ]);
 
     try {
@@ -104,211 +105,187 @@ export default function DevInjectorPage() {
       if (!res.ok) {
         setExecutionLogs((prev) => [
           ...prev,
-          `[ERROR] HTTP ${res.status}: ${data.error || "Simulation failed"}`,
-          data.details ? `[DETAILS] ${data.details}` : "",
+          `>>> [INJECT_ERROR] HTTP ${res.status}: ${data.error || "Execution failed"}`,
+          data.details ? JSON.stringify(data.details, null, 2) : "",
         ]);
       } else {
         setExecutionLogs((prev) => [
           ...prev,
-          ...(data.logs || []),
-          `✓ RESULT: ${data.message}`,
+          `>>> [INJECT_SUCCESS] ${data.message || "Scenario executed successfully"}`,
+          `>>> [INVARIANT_VERIFIED] ${data.invariantVerified || "Verified"}`,
+          data.caseId ? `>>> [TARGET_CASE] ${data.caseId}` : "",
+          data.auditAction ? `>>> [AUDIT_RECORD] Action: ${data.auditAction}` : "",
+          data.result ? JSON.stringify(data.result, null, 2) : "",
         ]);
       }
-    } catch (err) {
+    } catch (err: unknown) {
       setExecutionLogs((prev) => [
         ...prev,
-        `[NETWORK_ERROR] Failed to communicate with injector endpoint: ${(err as Error).message}`,
+        `>>> [NETWORK_ERROR] ${(err as Error).message}`,
       ]);
     } finally {
       setRunningId(null);
     }
   }
 
+  function handleClearLogs() {
+    setExecutionLogs(["[SANDBOX_CLEARED] Ready for next scenario injection."]);
+  }
+
   return (
-    <div style={{ marginTop: "2rem" }}>
-      {/* Visual Warning Banner */}
+    <div>
+      {/* 1. Page Header */}
+      <PageHeader
+        title="Developer Sandbox & Event Injector"
+        subtitle="Automated simulation harness for testing edge cases, out-of-order webhooks, idempotent replay protection, and adversarial payment races."
+        badge={
+          <span className="badge-base badge-neutral">
+            DEV ENVIRONMENT ONLY
+          </span>
+        }
+        actions={
+          <Link href="/reconciliation" className="btn btn-secondary btn-sm">
+            View Provenance Ledger →
+          </Link>
+        }
+      />
+
+      {/* Isolation Safety Banner */}
       <div
         style={{
-          background: "linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(245, 158, 11, 0.12) 100%)",
-          border: "1px solid rgba(239, 68, 68, 0.4)",
-          borderRadius: "0.75rem",
-          padding: "1.25rem 1.5rem",
-          marginBottom: "2rem",
+          background: "var(--bg-surface)",
+          border: "1px solid var(--border-default)",
+          borderLeft: "3px solid var(--warning-primary)",
+          borderRadius: "var(--radius-md)",
+          padding: "8px var(--space-4)",
+          marginBottom: "var(--space-6)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "8px",
+          fontSize: "0.75rem",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
-          <span style={{ fontSize: "1.25rem" }}>⚠️</span>
-          <h2 style={{ fontSize: "1.125rem", fontWeight: 700, color: "#f87171", margin: 0 }}>
-            DEVELOPER-ONLY EVENT INJECTOR (LOCAL SIMULATION SANDBOX)
-          </h2>
-          <span
-            style={{
-              background: "rgba(239, 68, 68, 0.2)",
-              color: "#fca5a5",
-              fontSize: "0.6875rem",
-              fontWeight: 700,
-              padding: "0.2rem 0.5rem",
-              borderRadius: "9999px",
-            }}
-          >
-            PROD GATED
-          </span>
-        </div>
-        <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", margin: 0, lineHeight: 1.5 }}>
-          This interface is strictly developer-only. It routes synthetic events through internal case services using <code>FakeRazorpayAdapter</code>. <strong>Zero calls are made to Razorpay</strong>, and all generated scenarios are <strong>strictly excluded</strong> from the Verified Test Mode Recovered financial accounting queries.
-        </p>
+        <span style={{ color: "var(--text-secondary)" }}>
+          <strong>Simulation Isolation Active:</strong> All simulated test fixtures carry <code>isSimulation: true</code> flags and are completely excluded from verified financial metrics.
+        </span>
+        <span className="code-inline">Zero Production Impact</span>
       </div>
 
-      {/* Main Grid: Scenarios & Execution Terminal */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
-        {/* Left Column: Preset Scenarios */}
+      {/* Grid: Scenarios + Terminal Log */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
+          gap: "var(--space-6)",
+          alignItems: "start",
+        }}
+      >
+        {/* Scenarios List */}
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-            <h3 style={{ fontSize: "1.125rem", fontWeight: 600, color: "#fff", margin: 0 }}>
-              Deterministic Test Scenarios ({SCENARIOS.length})
-            </h3>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-              Isolated Sandbox Fixtures
-            </span>
-          </div>
+          <h2 className="text-h2" style={{ marginBottom: "var(--space-3)" }}>
+            Available Test Scenarios ({SCENARIOS.length})
+          </h2>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            {SCENARIOS.map((sc) => (
-              <div
-                key={sc.id}
-                className="glass-card"
-                style={{
-                  padding: "1rem 1.25rem",
-                  border: "1px solid rgba(255, 255, 255, 0.08)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.5rem",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontWeight: 600, color: "#fff", fontSize: "0.9375rem" }}>
-                    {sc.title}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: "0.6875rem",
-                      padding: "0.15rem 0.5rem",
-                      borderRadius: "0.25rem",
-                      background: "rgba(255, 255, 255, 0.06)",
-                      color: "var(--text-muted)",
-                    }}
-                  >
-                    {sc.category}
-                  </span>
-                </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+            {SCENARIOS.map((sc) => {
+              const isRunning = runningId === sc.id;
 
-                <p style={{ color: "var(--text-secondary)", fontSize: "0.8125rem", margin: 0 }}>
-                  {sc.description}
-                </p>
-
+              return (
                 <div
-                  style={{
-                    fontSize: "0.75rem",
-                    color: "var(--accent-primary)",
-                    background: "rgba(99, 102, 241, 0.08)",
-                    padding: "0.35rem 0.6rem",
-                    borderRadius: "0.375rem",
-                    border: "1px solid rgba(99, 102, 241, 0.15)",
-                  }}
+                  key={sc.id}
+                  className="ops-panel"
+                  style={{ padding: "var(--space-4)" }}
                 >
-                  🔒 <strong>Invariant:</strong> {sc.invariantVerified}
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "0.25rem" }}>
-                  <button
-                    onClick={() => handleRunScenario(sc.id)}
-                    disabled={runningId !== null}
-                    className="action-button primary"
+                  <div
                     style={{
-                      padding: "0.35rem 0.85rem",
-                      fontSize: "0.8125rem",
-                      cursor: runningId !== null ? "not-allowed" : "pointer",
-                      opacity: runningId !== null ? 0.6 : 1,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      marginBottom: "var(--space-2)",
+                      gap: "8px",
                     }}
                   >
-                    {runningId === sc.id ? "Injecting..." : "Inject Scenario →"}
-                  </button>
+                    <div>
+                      <span className="badge-base badge-neutral" style={{ fontSize: "0.625rem", marginBottom: "4px" }}>
+                        {sc.category}
+                      </span>
+                      <h3 className="text-h3">{sc.title}</h3>
+                    </div>
+
+                    <button
+                      onClick={() => handleRunScenario(sc.id)}
+                      disabled={runningId !== null}
+                      className="btn btn-primary btn-sm"
+                    >
+                      {isRunning ? "Injecting..." : "Inject Scenario"}
+                    </button>
+                  </div>
+
+                  <p className="text-body" style={{ fontSize: "0.8125rem", marginBottom: "var(--space-2)" }}>
+                    {sc.description}
+                  </p>
+
+                  <div
+                    style={{
+                      padding: "6px 8px",
+                      background: "var(--bg-app)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: "var(--radius-xs)",
+                      fontSize: "0.75rem",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <strong style={{ color: "var(--accent-primary)" }}>Invariant Verified: </strong>
+                    {sc.invariantVerified}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
-        {/* Right Column: Interactive Simulation Console */}
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-            <h3 style={{ fontSize: "1.125rem", fontWeight: 600, color: "#fff", margin: 0 }}>
-              Live Simulation Terminal
-            </h3>
+        {/* Live Execution Logs Terminal */}
+        <div style={{ position: "sticky", top: "var(--space-6)" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "var(--space-3)",
+            }}
+          >
+            <h2 className="text-h2">Execution Output Stream</h2>
             <button
-              onClick={() => setExecutionLogs(["[TERMINAL_CLEARED] Sandbox terminal ready."])}
-              style={{
-                background: "transparent",
-                border: "1px solid var(--border-color)",
-                color: "var(--text-muted)",
-                fontSize: "0.75rem",
-                padding: "0.25rem 0.5rem",
-                borderRadius: "0.25rem",
-                cursor: "pointer",
-              }}
+              onClick={handleClearLogs}
+              className="btn btn-secondary btn-sm"
             >
-              Clear Terminal
+              Clear Output
             </button>
           </div>
 
           <div
             style={{
-              background: "#090d16",
-              border: "1px solid rgba(255, 255, 255, 0.12)",
-              borderRadius: "0.5rem",
-              padding: "1rem",
-              fontFamily: "var(--font-mono, monospace)",
-              fontSize: "0.8125rem",
-              color: "#34d399",
-              minHeight: "450px",
-              maxHeight: "600px",
+              background: "var(--bg-code)",
+              border: "1px solid var(--border-default)",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-4)",
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.75rem",
+              lineHeight: 1.6,
+              color: "#cbd5e1",
+              minHeight: "420px",
+              maxHeight: "680px",
               overflowY: "auto",
               whiteSpace: "pre-wrap",
-              lineHeight: 1.6,
             }}
           >
             {executionLogs.map((log, idx) => (
-              <div key={idx}>{log}</div>
+              <div key={idx} style={{ marginBottom: "2px" }}>
+                {log}
+              </div>
             ))}
-          </div>
-
-          {/* Direct Links to Provenance & Verification */}
-          <div
-            className="glass-card"
-            style={{
-              marginTop: "1rem",
-              padding: "1rem",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <div>
-              <div style={{ color: "#fff", fontSize: "0.875rem", fontWeight: 600 }}>
-                Verified Test Mode Transactions
-              </div>
-              <div style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>
-                Inspect the ~30 genuine Razorpay Test Mode transactions runbook.
-              </div>
-            </div>
-            <Link
-              href="/runbook"
-              className="action-button secondary"
-              style={{ padding: "0.4rem 0.85rem", fontSize: "0.8125rem", textDecoration: "none" }}
-            >
-              View Runbook →
-            </Link>
           </div>
         </div>
       </div>

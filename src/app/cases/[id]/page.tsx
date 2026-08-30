@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { formatMoney } from "@/lib/money";
+import { MoneyValue } from "@/components/money-value";
+import { CaseStateBadge } from "@/components/badges";
+import { AuditTimeline } from "@/components/audit-timeline";
 import { getCasePolicyEvaluation } from "@/lib/services/orchestrator-service";
 import { PolicyPanel } from "./policy-panel";
 import { DiagnosisPanel } from "./diagnosis-panel";
@@ -60,188 +62,183 @@ export default async function CaseDetailPage({ params }: PageProps) {
   });
 
   return (
-    <div style={{ marginTop: "2rem" }}>
+    <div>
       {/* Navigation Breadcrumb */}
-      <div style={{ marginBottom: "1.5rem" }}>
+      <div style={{ marginBottom: "var(--space-4)" }}>
         <Link
-          href="/"
+          href="/cases"
           style={{
             color: "var(--text-secondary)",
-            fontSize: "0.875rem",
+            fontSize: "0.8125rem",
             display: "inline-flex",
             alignItems: "center",
-            gap: "0.5rem",
+            gap: "6px",
           }}
         >
           ← Back to Cases Ledger
         </Link>
       </div>
 
-      {/* Case Header */}
+      {/* Case Header Banner */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "flex-start",
-          marginBottom: "1.5rem",
+          marginBottom: "var(--space-4)",
           flexWrap: "wrap",
-          gap: "1rem",
+          gap: "var(--space-3)",
         }}
       >
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-            <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#fff" }}>
-              Case {recoveryCase.id}
-            </h1>
-            <span className="badge badge-detected">{recoveryCase.status}</span>
-            <span className="code-pill">Version {recoveryCase.version}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
+            <h1 className="text-h1">Case {recoveryCase.id}</h1>
+            <CaseStateBadge status={recoveryCase.status} />
+            <span className="code-inline">Lock v{recoveryCase.version}</span>
           </div>
-          <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginTop: "0.25rem" }}>
-            Detected on {new Date(recoveryCase.createdAt).toLocaleString("en-IN")} via provider webhook
+          <p className="text-body" style={{ marginTop: "4px" }}>
+            Ingested on {new Date(recoveryCase.createdAt).toLocaleString("en-IN")} via HMAC-verified provider webhook
           </p>
         </div>
 
-        <div className="badge badge-disclaimer">
-          {recoveryCase.attempts.length === 0
-            ? "🔒 No recovery action has been taken"
-            : `⚡ ${recoveryCase.attempts.length} Recovery Attempt(s) Dispatched`}
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+          <span className="badge-base badge-neutral">
+            {recoveryCase.attempts.length === 0
+              ? "No Dispatches"
+              : `${recoveryCase.attempts.length} Outbound Attempt(s)`}
+          </span>
         </div>
       </div>
 
-      {/* State Flow Visualization */}
+      {/* 1. Deterministic State Flow Stepper */}
       <StateFlowDiagram
         status={recoveryCase.status}
         attemptsCount={recoveryCase.attempts.length}
         hasDuplicateRisk={hasDuplicateRisk}
       />
 
-      {/* Operator Governance Controls */}
+      {/* 2. Operator Governance & Action Bar */}
       <OperatorControls
         caseId={recoveryCase.id}
         currentStatus={recoveryCase.status}
         currentVersion={recoveryCase.version}
       />
 
-      {/* AI Semantic Diagnosis Advisory Panel */}
-      <DiagnosisPanel
-        caseId={recoveryCase.id}
-        initialDiagnosis={aiDiagnosis}
-      />
-
-      {/* Deterministic Policy Engine Evaluation & Operator Action Panel */}
+      {/* 3. Deterministic Policy Engine Evaluation Panel */}
       <PolicyPanel
         caseId={recoveryCase.id}
         caseVersion={recoveryCase.version}
         initialDecision={decision}
       />
 
-      {/* Grid: Details & Diagnostics */}
+      {/* 4. AI Semantic Diagnosis Advisory Panel */}
+      <DiagnosisPanel
+        caseId={recoveryCase.id}
+        initialDiagnosis={aiDiagnosis}
+      />
+
+      {/* 5. Transaction Diagnostics & Customer Details Grid */}
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-          gap: "1.5rem",
-          marginBottom: "2rem",
+          gap: "var(--space-4)",
+          marginBottom: "var(--space-6)",
         }}
       >
-        {/* Transaction & Customer Details */}
-        <div className="glass-card">
-          <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "#fff", marginBottom: "1rem" }}>
+        {/* Transaction Information Panel */}
+        <div className="ops-panel">
+          <h2 className="text-h3" style={{ marginBottom: "var(--space-3)" }}>
             Transaction Information
           </h2>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", fontSize: "0.875rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.8125rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ color: "var(--text-muted)" }}>Original Amount</span>
-              <span style={{ fontWeight: 700, color: "#fff" }}>
-                {formatMoney(recoveryCase.amountMinor, recoveryCase.currency)}
+              <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>
+                <MoneyValue amountMinor={recoveryCase.amountMinor} currency={recoveryCase.currency} showSubunits />
               </span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "var(--text-muted)" }}>Minor Units (Paise)</span>
-              <span className="code-pill">{recoveryCase.amountMinor.toString()}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ color: "var(--text-muted)" }}>Payment ID</span>
-              <span className="code-pill">{recoveryCase.paymentId}</span>
+              <span className="code-inline">{recoveryCase.paymentId}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ color: "var(--text-muted)" }}>Order ID</span>
-              <span className="code-pill">{recoveryCase.orderId || "N/A"}</span>
+              <span className="code-inline">{recoveryCase.orderId || "—"}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ color: "var(--text-muted)" }}>Merchant ID</span>
-              <span className="code-pill">{recoveryCase.merchantId}</span>
+              <span className="code-inline">{recoveryCase.merchantId}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ color: "var(--text-muted)" }}>Customer Email</span>
-              <span style={{ color: "var(--text-primary)" }}>{recoveryCase.customerEmail || "N/A"}</span>
+              <span style={{ color: "var(--text-primary)" }}>{recoveryCase.customerEmail || "—"}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ color: "var(--text-muted)" }}>Customer Phone</span>
-              <span style={{ color: "var(--text-primary)" }}>{recoveryCase.customerPhone || "N/A"}</span>
+              <span style={{ color: "var(--text-primary)" }}>{recoveryCase.customerPhone || "—"}</span>
             </div>
           </div>
         </div>
 
-        {/* Failure Diagnostics */}
-        <div className="glass-card">
-          <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "#fff", marginBottom: "1rem" }}>
-            Failure Reason & Diagnostics
+        {/* Failure Diagnostics Panel */}
+        <div className="ops-panel">
+          <h2 className="text-h3" style={{ marginBottom: "var(--space-3)" }}>
+            Failure Diagnostics & Risk
           </h2>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", fontSize: "0.875rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.8125rem" }}>
             <div>
-              <span style={{ color: "var(--text-muted)", display: "block", marginBottom: "0.25rem" }}>
+              <span className="text-caption" style={{ display: "block", marginBottom: "2px" }}>
                 Failure Code
               </span>
-              <span className="code-pill" style={{ color: "#ef4444" }}>
+              <span className="code-inline" style={{ color: "var(--danger-text)" }}>
                 {recoveryCase.failureCode || "BAD_REQUEST_ERROR"}
               </span>
             </div>
             <div>
-              <span style={{ color: "var(--text-muted)", display: "block", marginBottom: "0.25rem" }}>
+              <span className="text-caption" style={{ display: "block", marginBottom: "2px" }}>
                 Failure Description
               </span>
               <div
                 style={{
-                  background: "rgba(239, 68, 68, 0.08)",
-                  border: "1px solid rgba(239, 68, 68, 0.2)",
-                  padding: "0.75rem",
-                  borderRadius: "0.375rem",
-                  color: "#fca5a5",
+                  background: "var(--danger-subtle)",
+                  border: "1px solid var(--danger-border)",
+                  padding: "8px 10px",
+                  borderRadius: "var(--radius-xs)",
+                  color: "var(--danger-text)",
+                  fontSize: "0.75rem",
                 }}
               >
-                {recoveryCase.failureReason || "Payment authorization declined by customer bank"}
+                {recoveryCase.failureReason || "Payment authorization declined by customer issuing bank"}
               </div>
             </div>
-            <div style={{ marginTop: "0.5rem" }}>
-              <span style={{ color: "var(--text-muted)", display: "block", marginBottom: "0.25rem" }}>
-                Recovery Action Status
+            <div>
+              <span className="text-caption" style={{ display: "block", marginBottom: "2px" }}>
+                Customer Endpoint Verification
               </span>
-              <span className="badge badge-system-neutral">
-                {recoveryCase.attempts.length === 0
-                  ? "NO ACTIONS TAKEN • PASSIVE MONITORING"
-                  : `${recoveryCase.attempts.length} ATTEMPTS EXECUTED`}
+              <span style={{ color: (recoveryCase.customerEmail || recoveryCase.customerPhone) ? "var(--success-text)" : "var(--danger-text)" }}>
+                {(recoveryCase.customerEmail || recoveryCase.customerPhone) ? "Endpoint Verified (Channel Dispatch Active)" : "No Direct Endpoint (Requires Review)"}
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Executed Recovery Attempts History */}
+      {/* 6. Executed Recovery Attempts Table */}
       {recoveryCase.attempts.length > 0 && (
-        <div className="glass-card" style={{ marginBottom: "2rem" }}>
-          <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "#fff", marginBottom: "1rem" }}>
-            Executed Recovery Attempts ({recoveryCase.attempts.length})
-          </h2>
-          <div className="table-container">
-            <table className="data-table">
+        <div className="ops-panel rhythm-24" style={{ padding: "0" }}>
+          <div style={{ padding: "var(--space-4) var(--space-5)", borderBottom: "1px solid var(--border-subtle)" }}>
+            <h2 className="text-h2">Dispatched Recovery Attempts ({recoveryCase.attempts.length})</h2>
+          </div>
+          <div className="ops-table-container" style={{ border: "none", borderRadius: "0" }}>
+            <table className="ops-table">
               <thead>
                 <tr>
                   <th>Attempt #</th>
                   <th>Channel</th>
                   <th>Status</th>
                   <th>Provider Link ID</th>
-                  <th>Short URL</th>
+                  <th>Payment Link URL</th>
                   <th>Dispatched At</th>
                 </tr>
               </thead>
@@ -249,16 +246,16 @@ export default async function CaseDetailPage({ params }: PageProps) {
                 {recoveryCase.attempts.map((att) => (
                   <tr key={att.id}>
                     <td>
-                      <span className="code-pill">#{att.attemptNumber}</span>
+                      <span className="code-inline">#{att.attemptNumber}</span>
                     </td>
                     <td>
-                      <span className="code-pill">{att.channel}</span>
+                      <span className="code-inline">{att.channel}</span>
                     </td>
                     <td>
-                      <span className="badge badge-recovered">{att.status}</span>
+                      <span className="badge-base badge-recovered">{att.status}</span>
                     </td>
                     <td>
-                      <span className="code-pill">{att.paymentLinkId || "N/A"}</span>
+                      <span className="code-inline">{att.paymentLinkId || "—"}</span>
                     </td>
                     <td>
                       {att.paymentLinkUrl ? (
@@ -266,7 +263,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
                           href={att.paymentLinkUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          style={{ color: "var(--accent-primary)", textDecoration: "underline" }}
+                          style={{ color: "var(--accent-primary)", textDecoration: "underline", fontSize: "0.75rem" }}
                         >
                           {att.paymentLinkUrl}
                         </a>
@@ -274,7 +271,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
                         "—"
                       )}
                     </td>
-                    <td style={{ fontSize: "0.8125rem" }}>
+                    <td className="text-mono" style={{ fontSize: "0.75rem" }}>
                       {new Date(att.createdAt).toLocaleString("en-IN")}
                     </td>
                   </tr>
@@ -285,56 +282,58 @@ export default async function CaseDetailPage({ params }: PageProps) {
         </div>
       )}
 
-      {/* Webhook Ingestion Evidence & Traceability */}
-      <div className="glass-card" style={{ marginBottom: "2rem" }}>
-        <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "#fff", marginBottom: "1rem" }}>
-          Provider Webhook Evidence & Signature Verification
+      {/* 7. Webhook Ingestion Evidence */}
+      <div className="ops-panel rhythm-24">
+        <h2 className="text-h2" style={{ marginBottom: "var(--space-3)" }}>
+          Provider Webhook Signature Evidence ({webhookEvents.length})
         </h2>
         {webhookEvents.length === 0 ? (
-          <p style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>
-            Direct synthetic ingestion or test event.
+          <p style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
+            Ingested via synthetic test fixture or direct developer simulation.
           </p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
             {webhookEvents.map((evt) => (
               <div
                 key={evt.id}
                 style={{
-                  background: "rgba(255, 255, 255, 0.02)",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "0.5rem",
-                  padding: "1rem",
+                  background: "var(--bg-app)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "var(--radius-sm)",
+                  padding: "var(--space-3)",
                 }}
               >
                 <div
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
-                    fontSize: "0.8125rem",
-                    marginBottom: "0.5rem",
+                    fontSize: "0.75rem",
+                    marginBottom: "var(--space-2)",
                     flexWrap: "wrap",
-                    gap: "0.5rem",
+                    gap: "8px",
                   }}
                 >
-                  <div>
-                    <span style={{ color: "var(--text-muted)" }}>Event ID: </span>
-                    <span className="code-pill">{evt.eventId}</span>
+                  <div style={{ display: "flex", gap: "var(--space-3)" }}>
+                    <div>
+                      <span style={{ color: "var(--text-muted)" }}>Event ID: </span>
+                      <span className="code-inline">{evt.eventId}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: "var(--text-muted)" }}>Type: </span>
+                      <span className="code-inline">{evt.eventType}</span>
+                    </div>
                   </div>
-                  <div>
-                    <span style={{ color: "var(--text-muted)" }}>Event Type: </span>
-                    <span className="code-pill">{evt.eventType}</span>
-                  </div>
-                  <span className="badge badge-recovered">HMAC SIGNATURE VALID</span>
+                  <span className="badge-base badge-recovered">HMAC SIGNATURE VALID</span>
                 </div>
                 <pre
+                  className="code-inline text-mono"
                   style={{
-                    background: "#090d16",
-                    padding: "0.75rem",
-                    borderRadius: "0.375rem",
-                    fontSize: "0.75rem",
-                    color: "#94a3b8",
-                    overflowX: "auto",
+                    display: "block",
+                    padding: "8px",
+                    fontSize: "0.6875rem",
                     maxHeight: "180px",
+                    overflowX: "auto",
+                    whiteSpace: "pre-wrap",
                   }}
                 >
                   {JSON.stringify(evt.payload, null, 2)}
@@ -345,43 +344,12 @@ export default async function CaseDetailPage({ params }: PageProps) {
         )}
       </div>
 
-      {/* Immutable Audit Log Timeline */}
-      <div className="glass-card">
-        <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "#fff", marginBottom: "1.25rem" }}>
-          Immutable Case Audit Trail ({recoveryCase.auditLogs.length})
-        </h2>
-        <div className="timeline">
-          {recoveryCase.auditLogs.map((log) => (
-            <div key={log.id} className="timeline-item">
-              <div className="timeline-dot" />
-              <div className="timeline-content">
-                <div className="timeline-header">
-                  <span className="badge badge-system-neutral">{log.actorType}</span>
-                  <span>{new Date(log.createdAt).toLocaleString("en-IN")}</span>
-                </div>
-                <div className="timeline-title">{log.action}</div>
-                {log.reason && (
-                  <div className="timeline-body">{log.reason}</div>
-                )}
-                {log.newState && (
-                  <pre
-                    style={{
-                      marginTop: "0.5rem",
-                      background: "rgba(0, 0, 0, 0.3)",
-                      padding: "0.5rem",
-                      borderRadius: "0.25rem",
-                      fontSize: "0.75rem",
-                      color: "#cbd5e1",
-                      overflowX: "auto",
-                    }}
-                  >
-                    {JSON.stringify(log.newState, null, 2)}
-                  </pre>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* 8. Immutable Audit Trail Timeline */}
+      <div className="ops-panel">
+        <AuditTimeline
+          title="Immutable Case Audit Trail"
+          logs={recoveryCase.auditLogs}
+        />
       </div>
     </div>
   );

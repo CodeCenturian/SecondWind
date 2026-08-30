@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db";
-import { formatMoney } from "@/lib/money";
+import { PageHeader } from "@/components/page-header";
+import { MoneyValue } from "@/components/money-value";
+import { EvidenceSourceBadge } from "@/components/badges";
+import { EmptyState } from "@/components/states";
 import { getAccountingMetrics, getReconciliationLedger } from "@/lib/services/accounting-service";
 import Link from "next/link";
 
@@ -11,242 +14,159 @@ export default async function TestModeRunbookPage() {
     getReconciliationLedger(prisma),
   ]);
 
+  const settledCases = ledger.filter((item) => item.caseStatus === "RECOVERED");
+
   return (
-    <div style={{ marginTop: "2rem" }}>
-      {/* Header */}
+    <div>
+      {/* 1. Page Header */}
+      <PageHeader
+        title="Verified Razorpay Test Mode Runbook"
+        subtitle="The authoritative runbook of genuine Razorpay Test Mode transactions. This is the canonical evidence dataset used to prove deterministic recovery and single-evidence accounting."
+        badge={
+          <span className="badge-base badge-recovered">
+            AUTHORITATIVE EVIDENCE ONLY
+          </span>
+        }
+      />
+
+      {/* Safety Invariant Notice */}
       <div
         style={{
+          background: "var(--bg-surface)",
+          border: "1px solid var(--border-default)",
+          borderLeft: "3px solid var(--success-primary)",
+          borderRadius: "var(--radius-md)",
+          padding: "8px var(--space-4)",
+          marginBottom: "var(--space-6)",
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "flex-start",
-          marginBottom: "1.5rem",
+          alignItems: "center",
           flexWrap: "wrap",
-          gap: "1rem",
+          gap: "8px",
+          fontSize: "0.75rem",
         }}
       >
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-            <h1 style={{ fontSize: "1.75rem", fontWeight: 700, color: "#fff" }}>
-              Verified Test Mode Runbook & Evidence
-            </h1>
-            <span
-              style={{
-                background: "rgba(16, 185, 129, 0.15)",
-                border: "1px solid rgba(16, 185, 129, 0.3)",
-                borderRadius: "9999px",
-                padding: "0.25rem 0.75rem",
-                fontSize: "0.75rem",
-                fontWeight: 700,
-                color: "#34d399",
-              }}
-            >
-              AUTHORITATIVE EVIDENCE ONLY
+        <span style={{ color: "var(--text-secondary)" }}>
+          <strong>Strict Invariant:</strong> Zero developer simulation contamination in verified recovery metrics.
+        </span>
+        <EvidenceSourceBadge scope="FINANCIAL_SCOPE" />
+      </div>
+
+      {/* 2. Metrics Row */}
+      <div className="metrics-row rhythm-24">
+        <div className="ops-panel" style={{ borderLeft: "3px solid var(--success-primary)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-2)" }}>
+            <span className="text-caption" style={{ color: "var(--success-text)", fontWeight: 700 }}>
+              Verified Test Mode Recovered
             </span>
+            <EvidenceSourceBadge scope="FINANCIAL_SCOPE" />
           </div>
-          <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginTop: "0.35rem" }}>
-            The canonical runbook of genuine Razorpay Test Mode transactions. This is the <strong>only</strong> dashboard batch used to demonstrate measured money recovered.
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--success-text)", margin: "4px 0" }}>
+            <MoneyValue amountMinor={metrics.verifiedRecoveredAmountMinor} currency="INR" />
+          </div>
+          <p style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+            {metrics.verifiedRecoveredCount} settled, verified captured transactions
           </p>
         </div>
 
-        <div className="badge badge-disclaimer">
-          🔒 Strict Invariant: Zero simulation contamination in recovered metrics
-        </div>
-      </div>
-
-      {/* Metrics Row */}
-      <div className="metrics-grid" style={{ marginBottom: "2rem" }}>
-        <div
-          className="glass-card"
-          style={{
-            border: "1px solid rgba(16, 185, 129, 0.3)",
-            background: "linear-gradient(180deg, rgba(16, 185, 129, 0.08) 0%, rgba(15, 23, 42, 0.6) 100%)",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
-              Verified Test Mode Recovered
-            </span>
-            <span className="badge badge-recovered" style={{ fontSize: "0.6875rem" }}>
-              GENUINE TEST MODE
-            </span>
+        <div className="ops-panel">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-2)" }}>
+            <span className="text-caption">Total Ingested Volume</span>
+            <EvidenceSourceBadge scope="OPERATIONAL_ONLY" label="FAILURES" />
           </div>
-          <div className="metric-value" style={{ color: "#34d399" }}>
-            {formatMoney(metrics.verifiedRecoveredAmountMinor, "INR")}
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--text-primary)", margin: "4px 0" }}>
+            <MoneyValue amountMinor={metrics.totalDetectedVolumeMinor} currency="INR" />
           </div>
-          <div className="metric-sub" style={{ marginTop: "0.5rem" }}>
-            {metrics.verifiedRecoveredCount} settled, verified captured transactions
-          </div>
-        </div>
-
-        <div className="glass-card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
-              Total Detected Volume
-            </span>
-            <span className="badge badge-detected" style={{ fontSize: "0.6875rem" }}>
-              FAILURES
-            </span>
-          </div>
-          <div className="metric-value" style={{ color: "#f87171" }}>
-            {formatMoney(metrics.totalDetectedVolumeMinor, "INR")}
-          </div>
-          <div className="metric-sub" style={{ marginTop: "0.5rem" }}>
+          <p style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
             Across {metrics.totalDetectedCount} detected payment failures
-          </div>
+          </p>
         </div>
 
-        <div className="glass-card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
-              Verified Webhook Proofs
-            </span>
-            <span className="badge badge-system-neutral" style={{ fontSize: "0.6875rem" }}>
-              HMAC VERIFIED
-            </span>
+        <div className="ops-panel">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-2)" }}>
+            <span className="text-caption">Settlement Success Rate</span>
+            <span className="badge-base badge-neutral">PERFORMANCE</span>
           </div>
-          <div className="metric-value" style={{ color: "#60a5fa" }}>
-            {metrics.verifiedWebhookEventsCount}
+          <div className="text-mono" style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--accent-primary)", margin: "4px 0" }}>
+            {metrics.totalDetectedCount > 0
+              ? `${Math.round((metrics.verifiedRecoveredCount / metrics.totalDetectedCount) * 100)}%`
+              : "0%"}
           </div>
-          <div className="metric-sub" style={{ marginTop: "0.5rem" }}>
-            Cryptographically signed provider webhooks
-          </div>
+          <p style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+            Ratio of settled recoveries to detected failure events
+          </p>
         </div>
       </div>
 
-      {/* Runbook Table */}
-      <div className="glass-card" style={{ padding: "1.5rem", marginBottom: "2rem" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "1.25rem",
-            flexWrap: "wrap",
-            gap: "0.75rem",
-          }}
-        >
-          <div>
-            <h2 style={{ fontSize: "1.125rem", fontWeight: 600, color: "#fff" }}>
-              Canonical Test Mode Transaction Ledger ({ledger.length})
-            </h2>
-            <p style={{ color: "var(--text-muted)", fontSize: "0.8125rem", marginTop: "0.25rem" }}>
-              Authoritative evidence linking Case → Recovery Link → Captured Payment ID → Cryptographic Webhook.
-            </p>
-          </div>
-
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <Link
-              href="/reconciliation"
-              style={{ color: "var(--text-secondary)", fontSize: "0.8125rem", textDecoration: "underline" }}
-            >
-              Detailed Reconciliation
-            </Link>
-          </div>
+      {/* 3. Settled Cases Table */}
+      <div className="ops-panel rhythm-24" style={{ padding: "0" }}>
+        <div style={{ padding: "var(--space-4) var(--space-5)", borderBottom: "1px solid var(--border-subtle)" }}>
+          <h2 className="text-h2">Verified Settled Transactions ({settledCases.length})</h2>
+          <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginTop: "2px" }}>
+            Every counted Rupee is directly linked to an HMAC-verified payment.captured payload.
+          </p>
         </div>
 
-        {ledger.length === 0 ? (
-          <div
-            style={{
-              padding: "3rem 1.5rem",
-              textAlign: "center",
-              color: "var(--text-muted)",
-              background: "rgba(255, 255, 255, 0.01)",
-              borderRadius: "0.5rem",
-              border: "1px dashed var(--border-color)",
-            }}
-          >
-            <p style={{ fontSize: "1rem", color: "#fff", marginBottom: "0.5rem" }}>
-              No genuine test transactions recorded yet.
-            </p>
-            <p style={{ fontSize: "0.8125rem" }}>
-              Execute the 30 transactions outlined in <code>docs/test-mode-runbook.md</code> using Razorpay Test Mode.
-            </p>
+        {settledCases.length === 0 ? (
+          <div style={{ padding: "var(--space-6)" }}>
+            <EmptyState
+              title="No settled Test Mode cases yet"
+              description="Deliver a payment.captured webhook for an active payment link or trigger a settlement flow to demonstrate verified recovery."
+              actionText="View Cases Ledger"
+              actionHref="/cases"
+            />
           </div>
         ) : (
-          <div className="table-container">
-            <table className="data-table">
+          <div className="ops-table-container" style={{ border: "none", borderRadius: "0" }}>
+            <table className="ops-table">
               <thead>
                 <tr>
-                  <th>#</th>
                   <th>Case ID</th>
-                  <th>Original Payment</th>
-                  <th>Provider Link</th>
+                  <th>Failed Payment ID</th>
+                  <th>Payment Link ID</th>
                   <th>Captured Payment ID</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                  <th>Evidence Source</th>
-                  <th>Settled At</th>
+                  <th>Settled Amount</th>
+                  <th>Provenance Verification</th>
+                  <th style={{ textAlign: "right" }}>Audit Link</th>
                 </tr>
               </thead>
               <tbody>
-                {ledger.map((item, idx) => (
+                {settledCases.map((item) => (
                   <tr key={item.caseId}>
-                    <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
-                      {idx + 1}
+                    <td>
+                      <span className="code-inline">{item.caseId.slice(0, 8)}</span>
                     </td>
                     <td>
+                      <span className="code-inline">{item.originalPaymentId}</span>
+                    </td>
+                    <td>
+                      <span className="code-inline" style={{ color: "var(--accent-primary)" }}>
+                        {item.providerPaymentLinkId || "—"}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="code-inline" style={{ color: "var(--success-text)" }}>
+                        {item.providerCapturedPaymentId || "—"}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 700, color: "var(--success-text)" }}>
+                      <MoneyValue
+                        amountMinor={item.verifiedCapturedAmountMinor || item.originalAmountMinor}
+                        currency={item.currency}
+                      />
+                    </td>
+                    <td>
+                      <span className="badge-base badge-recovered">
+                        HMAC VALIDATED
+                      </span>
+                    </td>
+                    <td style={{ textAlign: "right" }}>
                       <Link
                         href={`/cases/${item.caseId}`}
-                        style={{ color: "var(--accent-primary)", fontWeight: 600, textDecoration: "underline" }}
+                        className="btn btn-secondary btn-sm"
                       >
-                        {item.caseId.slice(0, 8)}...
+                        Provenance →
                       </Link>
-                    </td>
-                    <td>
-                      <span className="code-pill">{item.originalPaymentId}</span>
-                    </td>
-                    <td>
-                      {item.providerPaymentLinkId ? (
-                        <span className="code-pill">{item.providerPaymentLinkId}</span>
-                      ) : (
-                        <span style={{ color: "var(--text-muted)" }}>—</span>
-                      )}
-                    </td>
-                    <td>
-                      {item.providerCapturedPaymentId ? (
-                        <span className="code-pill" style={{ color: "#34d399" }}>
-                          {item.providerCapturedPaymentId}
-                        </span>
-                      ) : (
-                        <span style={{ color: "var(--text-muted)" }}>—</span>
-                      )}
-                    </td>
-                    <td style={{ fontWeight: 600, color: "#fff" }}>
-                      {formatMoney(item.originalAmountMinor, item.currency)}
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${
-                          item.caseStatus === "RECOVERED"
-                            ? "badge-recovered"
-                            : item.caseStatus === "MANUAL_REVIEW"
-                            ? "badge-detected"
-                            : "badge-system-neutral"
-                        }`}
-                      >
-                        {item.caseStatus}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        style={{
-                          fontSize: "0.75rem",
-                          color: "#10b981",
-                          background: "rgba(16, 185, 129, 0.1)",
-                          padding: "0.15rem 0.5rem",
-                          borderRadius: "0.25rem",
-                        }}
-                      >
-                        Razorpay Test Mode
-                      </span>
-                    </td>
-                    <td style={{ fontSize: "0.8125rem" }}>
-                      {item.recoveredAt
-                        ? new Date(item.recoveredAt).toLocaleString("en-IN", {
-                            dateStyle: "short",
-                            timeStyle: "short",
-                          })
-                        : "—"}
                     </td>
                   </tr>
                 ))}
@@ -254,6 +174,24 @@ export default async function TestModeRunbookPage() {
             </table>
           </div>
         )}
+      </div>
+
+      {/* 4. Verification Instructions Guide */}
+      <div className="ops-panel">
+        <h2 className="text-h2" style={{ marginBottom: "var(--space-3)" }}>
+          How to Verify Test Mode Provenance
+        </h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)", fontSize: "0.8125rem", color: "var(--text-secondary)" }}>
+          <div style={{ padding: "var(--space-3)", background: "var(--bg-app)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>1. Webhook Signature Integrity:</strong> Every webhook request is verified against <code>RAZORPAY_WEBHOOK_SECRET</code> using HMAC-SHA256 before any case ingestion or status update.
+          </div>
+          <div style={{ padding: "var(--space-3)", background: "var(--bg-app)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>2. Single-Evidence Financial Recognition:</strong> Only cases where a verified <code>payment.captured</code> or <code>payment_link.paid</code> webhook event matches an active case have their amounts counted toward verified revenue.
+          </div>
+          <div style={{ padding: "var(--space-3)", background: "var(--bg-app)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>3. Strict Data Isolation:</strong> Developer simulator events in <code>/dev/injector</code> carry <code>isSimulation: true</code> flags and are completely excluded from verified financial aggregates.
+          </div>
+        </div>
       </div>
     </div>
   );

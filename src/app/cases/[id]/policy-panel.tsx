@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PolicyDecision } from "@/lib/policy/types";
 import { AttemptChannel } from "@prisma/client";
@@ -48,10 +48,10 @@ export function PolicyPanel({
       const data = await response.json();
 
       if (!response.ok) {
-        setActionError(data.error || "Failed to trigger recovery action");
+        setActionError(data.error || "Failed to execute policy recovery action");
       } else {
         setActionSuccess(
-          `Recovery action triggered successfully via ${selectedChannel}. Payment Link: ${data.attempt.paymentLinkUrl || data.attempt.paymentLinkId}`
+          `Recovery attempt dispatched via ${selectedChannel}. Payment Link: ${data.attempt.paymentLinkUrl || data.attempt.paymentLinkId}`
         );
         router.refresh();
       }
@@ -62,279 +62,207 @@ export function PolicyPanel({
     }
   }
 
-  const outcomeColors = {
+  const outcomeBadge = {
     ALLOW_ACTION: {
-      bg: "rgba(16, 185, 129, 0.12)",
-      border: "rgba(16, 185, 129, 0.3)",
-      text: "#34d399",
-      badge: "badge-recovered",
-      label: "ELIGIBLE FOR RECOVERY ACTION",
+      badgeClass: "badge-recovered",
+      label: "ACTION PERMITTED BY POLICY",
     },
     MANUAL_REVIEW: {
-      bg: "rgba(245, 158, 11, 0.12)",
-      border: "rgba(245, 158, 11, 0.3)",
-      text: "#fbbf24",
-      badge: "badge-detected",
+      badgeClass: "badge-warning",
       label: "MANUAL REVIEW REQUIRED",
     },
     STOP: {
-      bg: "rgba(239, 68, 68, 0.12)",
-      border: "rgba(239, 68, 68, 0.3)",
-      text: "#f87171",
-      badge: "badge-system-neutral",
-      label: "RECOVERY STOPPED BY POLICY",
+      badgeClass: "badge-danger",
+      label: "STOPPED BY DETERMINISTIC RULE",
     },
   }[decision.outcome];
 
   return (
-    <div className="glass-card" style={{ marginBottom: "2rem" }}>
+    <div className="ops-panel rhythm-24">
       {/* Header */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: "1.25rem",
+          marginBottom: "var(--space-4)",
           flexWrap: "wrap",
-          gap: "0.75rem",
+          gap: "var(--space-2)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <h2 style={{ fontSize: "1.125rem", fontWeight: 700, color: "#fff" }}>
-            Deterministic Policy Engine Evaluation
-          </h2>
-          <span className="code-pill">Policy {decision.policyVersion}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+          <h2 className="text-h2">Deterministic Policy Engine Decision</h2>
+          <span className="code-inline">Policy v{decision.policyVersion}</span>
         </div>
-        <span className={`badge ${outcomeColors.badge}`}>{outcomeColors.label}</span>
+        <span className={`badge-base ${outcomeBadge.badgeClass}`}>
+          {outcomeBadge.label}
+        </span>
       </div>
 
-      {/* AI Advisory Alignment & Policy Authority Banner */}
+      {/* AI Advisory Alignment & Safety Invariant Banner */}
       {decision.aiAdvisoryAlignment && (
         <div
           style={{
             background: decision.aiAdvisoryAlignment.isOverriddenByPolicy
-              ? "rgba(239, 68, 68, 0.08)"
-              : "rgba(16, 185, 129, 0.08)",
+              ? "var(--danger-subtle)"
+              : "var(--bg-app)",
             border: `1px solid ${
               decision.aiAdvisoryAlignment.isOverriddenByPolicy
-                ? "rgba(239, 68, 68, 0.25)"
-                : "rgba(16, 185, 129, 0.25)"
+                ? "var(--danger-border)"
+                : "var(--border-subtle)"
             }`,
-            borderRadius: "0.5rem",
-            padding: "0.875rem 1.25rem",
-            marginBottom: "1rem",
+            borderRadius: "var(--radius-sm)",
+            padding: "8px 12px",
+            marginBottom: "var(--space-4)",
             fontSize: "0.8125rem",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
             flexWrap: "wrap",
-            gap: "0.5rem",
+            gap: "8px",
           }}
         >
           <div>
             <span style={{ color: "var(--text-muted)" }}>AI Diagnostic Recommendation: </span>
-            <span className="code-pill" style={{ fontWeight: 600 }}>
+            <span className="code-inline" style={{ fontWeight: 600 }}>
               {decision.aiAdvisoryAlignment.aiRecommendedHandling || "NONE"}
             </span>
             {decision.aiAdvisoryAlignment.aiConfidence !== undefined && (
-              <span style={{ color: "var(--text-muted)", marginLeft: "0.35rem" }}>
-                ({Math.round(decision.aiAdvisoryAlignment.aiConfidence * 100)}% conf)
+              <span style={{ color: "var(--text-muted)", marginLeft: "4px" }}>
+                ({Math.round(decision.aiAdvisoryAlignment.aiConfidence * 100)}% confidence)
               </span>
             )}
           </div>
 
           <div>
             {decision.aiAdvisoryAlignment.isOverriddenByPolicy ? (
-              <span
-                style={{
-                  color: "#f87171",
-                  fontWeight: 600,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                }}
-              >
-                <span>🛑 OVERRIDDEN BY MERCHANT POLICY</span>
+              <span style={{ color: "var(--danger-text)", fontWeight: 600, fontSize: "0.75rem" }}>
+                OVERRIDDEN BY DETERMINISTIC BOUNDARY ({decision.outcome})
               </span>
             ) : (
-              <span
-                style={{
-                  color: "#34d399",
-                  fontWeight: 600,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                }}
-              >
-                <span>✓ ALIGNED WITH MERCHANT POLICY</span>
+              <span style={{ color: "var(--success-text)", fontSize: "0.75rem" }}>
+                AI recommendation aligned with policy boundaries
               </span>
             )}
           </div>
         </div>
       )}
 
-      {/* Outcome Banner */}
-      <div
-        style={{
-          background: outcomeColors.bg,
-          border: `1px solid ${outcomeColors.border}`,
-          borderRadius: "0.5rem",
-          padding: "1rem 1.25rem",
-          marginBottom: "1.5rem",
-        }}
-      >
-        <div style={{ fontWeight: 600, color: outcomeColors.text, fontSize: "0.9375rem" }}>
-          Deterministic Policy Outcome: {decision.outcome}
-        </div>
-        <div style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginTop: "0.35rem" }}>
-          {decision.nextStoppingRule}
-        </div>
-      </div>
-
-      {/* Policy Diagnostics Grid */}
+      {/* Rule Evaluation Grid */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: "1rem",
-          marginBottom: "1.5rem",
-          fontSize: "0.875rem",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+          gap: "var(--space-4)",
+          marginBottom: "var(--space-4)",
         }}
       >
-        <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "0.75rem 1rem", borderRadius: "0.375rem" }}>
-          <div style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>Remaining Attempts</div>
-          <div style={{ fontWeight: 700, fontSize: "1.125rem", color: "#fff", marginTop: "0.25rem" }}>
-            {decision.remainingAttempts}
+        <div style={{ background: "var(--bg-app)", padding: "var(--space-3)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+          <div className="text-caption" style={{ marginBottom: "var(--space-1)" }}>
+            Evaluated Decision Reason
+          </div>
+          <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.875rem" }}>
+            {decision.reasons.length > 0 ? decision.reasons.join(" • ") : "No policy rule constraints breached"}
+          </div>
+          <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "4px" }}>
+            Next Stopping Rule: {decision.nextStoppingRule} ({decision.remainingAttempts} attempts remaining)
           </div>
         </div>
 
-        <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "0.75rem 1rem", borderRadius: "0.375rem" }}>
-          <div style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>Allowed Channels</div>
-          <div style={{ fontWeight: 600, color: "#fff", marginTop: "0.25rem" }}>
-            {decision.allowedActionTypes.length > 0
-              ? decision.allowedActionTypes.join(", ")
-              : "None"}
+        <div style={{ background: "var(--bg-app)", padding: "var(--space-3)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+          <div className="text-caption" style={{ marginBottom: "var(--space-1)" }}>
+            Permitted Outbound Channels
           </div>
-        </div>
-
-        <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "0.75rem 1rem", borderRadius: "0.375rem" }}>
-          <div style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>Rule Codes</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", marginTop: "0.25rem" }}>
-            {decision.reasons.map((r) => (
-              <span key={r} className="code-pill" style={{ fontSize: "0.6875rem" }}>
-                {r}
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
+            {decision.allowedActionTypes.length > 0 ? (
+              decision.allowedActionTypes.map((ch) => (
+                <span key={ch} className="code-inline" style={{ color: "var(--accent-primary)" }}>
+                  {ch}
+                </span>
+              ))
+            ) : (
+              <span style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
+                None (Execution Blocked)
               </span>
-            ))}
+            )}
           </div>
         </div>
       </div>
 
-      {/* Operator Action Trigger Panel */}
-      {decision.canExecute ? (
+      {/* Dispatch Action Control */}
+      {decision.canExecute && (
         <div
           style={{
-            borderTop: "1px solid var(--border-color)",
-            paddingTop: "1.25rem",
+            padding: "var(--space-3) var(--space-4)",
+            background: "var(--bg-app)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "var(--radius-sm)",
             display: "flex",
-            flexDirection: "column",
-            gap: "1rem",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "var(--space-3)",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" }}>
-            <div>
-              <div style={{ fontWeight: 600, color: "#fff", fontSize: "0.9375rem" }}>
-                Operator Action Authorization
-              </div>
-              <div style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
-                Explicit operator request required. Client cannot bypass allowed action set.
-              </div>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              <select
-                value={selectedChannel}
-                onChange={(e) => setSelectedChannel(e.target.value as AttemptChannel)}
-                style={{
-                  background: "#090d16",
-                  color: "#fff",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "0.375rem",
-                  padding: "0.5rem 0.75rem",
-                  fontSize: "0.875rem",
-                }}
-              >
-                {decision.allowedActionTypes.map((channel) => (
-                  <option key={channel} value={channel}>
-                    Channel: {channel}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                onClick={handleTriggerAction}
-                disabled={loading}
-                style={{
-                  background: "linear-gradient(135deg, #10b981, #059669)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "0.375rem",
-                  padding: "0.55rem 1.25rem",
-                  fontWeight: 600,
-                  fontSize: "0.875rem",
-                  cursor: loading ? "not-allowed" : "pointer",
-                  opacity: loading ? 0.7 : 1,
-                  boxShadow: "0 2px 10px rgba(16, 185, 129, 0.3)",
-                }}
-              >
-                {loading ? "Evaluating & Dispatching..." : `Trigger ${selectedChannel}`}
-              </button>
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.8125rem", color: "var(--text-secondary)" }}>
+              Dispatch Channel:
+            </span>
+            <select
+              value={selectedChannel}
+              onChange={(e) => setSelectedChannel(e.target.value as AttemptChannel)}
+              className="ops-select"
+              style={{ width: "auto", padding: "4px 8px" }}
+              disabled={loading}
+            >
+              {decision.allowedActionTypes.map((ch) => (
+                <option key={ch} value={ch}>
+                  {ch}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {actionSuccess && (
-            <div
-              style={{
-                background: "rgba(16, 185, 129, 0.15)",
-                border: "1px solid rgba(16, 185, 129, 0.3)",
-                padding: "0.75rem 1rem",
-                borderRadius: "0.375rem",
-                color: "#34d399",
-                fontSize: "0.875rem",
-              }}
-            >
-              ✓ {actionSuccess}
-            </div>
-          )}
-
-          {actionError && (
-            <div
-              style={{
-                background: "rgba(239, 68, 68, 0.15)",
-                border: "1px solid rgba(239, 68, 68, 0.3)",
-                padding: "0.75rem 1rem",
-                borderRadius: "0.375rem",
-                color: "#fca5a5",
-                fontSize: "0.875rem",
-              }}
-            >
-              ✕ {actionError}
-            </div>
-          )}
+          <button
+            onClick={handleTriggerAction}
+            disabled={loading}
+            className="btn btn-primary btn-sm"
+          >
+            {loading ? "Generating Link..." : `Trigger Recovery Attempt (${selectedChannel})`}
+          </button>
         </div>
-      ) : (
+      )}
+
+      {/* Action Error / Success Feedback */}
+      {actionError && (
         <div
           style={{
-            borderTop: "1px solid var(--border-color)",
-            paddingTop: "1rem",
-            color: "var(--text-muted)",
+            marginTop: "var(--space-3)",
+            padding: "8px 12px",
+            background: "var(--danger-subtle)",
+            border: "1px solid var(--danger-border)",
+            borderRadius: "var(--radius-sm)",
+            color: "var(--danger-text)",
             fontSize: "0.8125rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
           }}
         >
-          <span>🛑 Automated & Manual Action Buttons Disabled:</span>
-          <span>Policy rule constraint ({decision.reasons.join(", ")}) active.</span>
+          {actionError}
+        </div>
+      )}
+
+      {actionSuccess && (
+        <div
+          style={{
+            marginTop: "var(--space-3)",
+            padding: "8px 12px",
+            background: "var(--success-subtle)",
+            border: "1px solid var(--success-border)",
+            borderRadius: "var(--radius-sm)",
+            color: "var(--success-text)",
+            fontSize: "0.8125rem",
+          }}
+        >
+          {actionSuccess}
         </div>
       )}
     </div>

@@ -34,3 +34,5 @@ yarn-error.log*
 .idea/
 .agent/
 .agents/
+PRODUCT.md
+docs/
