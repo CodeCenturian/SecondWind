@@ -141,8 +141,16 @@ export async function getAccountingMetrics(
     }
 
     if (c.status === CaseStatus.RECOVERED) {
-      // Confirm at least one attempt is PAID with captured metadata
-      const hasPaidAttempt = caseAttempts.some((a) => a.status === AttemptStatus.PAID);
+      // Confirm at least one attempt is PAID with captured metadata AND is not a simulation
+      const hasPaidAttempt = caseAttempts.some((a) => {
+        if (a.status !== AttemptStatus.PAID) return false;
+        const meta = (a.metadata || {}) as Record<string, unknown>;
+        // INVARIANT: Injected simulation scenarios CANNOT contribute to verified recovered money
+        if (meta["isSimulation"] === true || meta["isDevInjected"] === true) {
+          return false;
+        }
+        return true;
+      });
       if (hasPaidAttempt) {
         verifiedRecoveredAmountMinor += c.amountMinor;
         verifiedRecoveredCount += 1;

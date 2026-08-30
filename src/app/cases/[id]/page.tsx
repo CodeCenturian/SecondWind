@@ -4,6 +4,8 @@ import { formatMoney } from "@/lib/money";
 import { getCasePolicyEvaluation } from "@/lib/services/orchestrator-service";
 import { PolicyPanel } from "./policy-panel";
 import { DiagnosisPanel } from "./diagnosis-panel";
+import { StateFlowDiagram } from "./state-flow-diagram";
+import { OperatorControls } from "./operator-controls";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -25,12 +27,22 @@ export default async function CaseDetailPage({ params }: PageProps) {
         orderBy: { createdAt: "desc" },
       },
       merchantPolicy: true,
+      refundTasks: {
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
 
   if (!recoveryCase) {
     notFound();
   }
+
+  // Check duplicate risk
+  const hasDuplicateRisk =
+    recoveryCase.refundTasks.length > 0 ||
+    recoveryCase.auditLogs.some(
+      (l) => l.action.includes("DUPLICATE_RACE") || l.action.includes("ADVERSARIAL")
+    );
 
   // Get real-time pure policy evaluation and any persisted AI diagnosis
   const { decision, aiDiagnosis } = await getCasePolicyEvaluation(prisma, id);
@@ -95,6 +107,20 @@ export default async function CaseDetailPage({ params }: PageProps) {
             : `⚡ ${recoveryCase.attempts.length} Recovery Attempt(s) Dispatched`}
         </div>
       </div>
+
+      {/* State Flow Visualization */}
+      <StateFlowDiagram
+        status={recoveryCase.status}
+        attemptsCount={recoveryCase.attempts.length}
+        hasDuplicateRisk={hasDuplicateRisk}
+      />
+
+      {/* Operator Governance Controls */}
+      <OperatorControls
+        caseId={recoveryCase.id}
+        currentStatus={recoveryCase.status}
+        currentVersion={recoveryCase.version}
+      />
 
       {/* AI Semantic Diagnosis Advisory Panel */}
       <DiagnosisPanel
