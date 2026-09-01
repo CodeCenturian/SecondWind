@@ -149,25 +149,10 @@ export function LoadingState({ message = "Loading operational data..." }: Loadin
         textAlign: "center",
       }}
     >
-      <div
-        style={{
-          width: "24px",
-          height: "24px",
-          border: "2px solid var(--border-default)",
-          borderTopColor: "var(--accent-primary)",
-          borderRadius: "50%",
-          animation: "spin 0.6s linear infinite",
-          marginBottom: "var(--space-3)",
-        }}
-      />
+      <div className="spin-loader" />
       <span style={{ fontSize: "0.8125rem", color: "var(--text-muted)" }}>
         {message}
       </span>
-      <style jsx>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 }

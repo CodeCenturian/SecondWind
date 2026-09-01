@@ -507,11 +507,29 @@ a {
   margin-bottom: var(--space-6);
 }
 
-/* Vertical Rhythm Utilities */
-.rhythm-16 { margin-bottom: var(--space-4); }
-.rhythm-24 { margin-bottom: var(--space-6); }
-.rhythm-32 { margin-bottom: var(--space-8); }
-.rhythm-48 { margin-bottom: var(--space-12); }
+/* Loading Spinner */
+.spin-loader {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  margin-bottom: var(--space-3);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 1024px) {
+  .mobile-header {
+    display: flex !important;
+  }
+  .hide-mobile {
+    display: none !important;
+  }
+}
 
 /* Reduced Motion */
 @media (prefers-reduced-motion: reduce) {

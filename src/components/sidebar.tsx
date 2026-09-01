@@ -66,6 +66,50 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
+function BrandLogo({ compact = false }: { compact?: boolean }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: compact ? "8px" : "10px" }}>
+      <div
+        style={{
+          width: compact ? "28px" : "34px",
+          height: compact ? "28px" : "34px",
+          borderRadius: "var(--radius-sm)",
+          background: "linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(234, 179, 8, 0.08))",
+          border: "1px solid rgba(16, 185, 129, 0.45)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: "0 0 14px rgba(16, 185, 129, 0.2)",
+          flexShrink: 0,
+        }}
+      >
+        <svg width={compact ? "16" : "20"} height={compact ? "16" : "20"} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" />
+          <path d="M12 6C8.69 6 6 8.69 6 12C6 15.31 8.69 18 12 18" stroke="#34d399" strokeWidth="2" strokeLinecap="round" />
+          <path d="M12 2V12L19 12" stroke="#fde047" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="12" cy="12" r="2.2" fill="#10b981" />
+        </svg>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "1px", lineHeight: 1.15 }}>
+          <span style={{ fontWeight: 800, fontSize: compact ? "0.9375rem" : "1.0625rem", color: "#f2f7f4", letterSpacing: "-0.02em" }}>
+            Second
+          </span>
+          <span style={{ fontWeight: 800, fontSize: compact ? "0.9375rem" : "1.0625rem", color: "var(--accent-primary)", letterSpacing: "-0.02em" }}>
+            Wind
+          </span>
+        </div>
+        {!compact && (
+          <span style={{ fontSize: "0.5625rem", color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600, marginTop: "2px" }}>
+            Recovery Console
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function AppSidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -85,7 +129,7 @@ export function AppSidebar() {
           display: "none",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "12px 16px",
+          padding: "10px 16px",
           background: "var(--bg-sidebar)",
           borderBottom: "1px solid var(--border-subtle)",
           position: "sticky",
@@ -94,23 +138,8 @@ export function AppSidebar() {
         }}
         className="mobile-header"
       >
-        <Link href="/" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div
-            style={{
-              background: "var(--accent-primary)",
-              color: "#040806",
-              fontWeight: 700,
-              fontSize: "0.75rem",
-              padding: "2px 6px",
-              borderRadius: "var(--radius-xs)",
-              letterSpacing: "0.05em",
-            }}
-          >
-            SW
-          </div>
-          <span style={{ fontWeight: 700, fontSize: "0.9375rem", color: "#fff" }}>
-            SECONDWIND
-          </span>
+        <Link href="/" style={{ display: "flex", alignItems: "center" }}>
+          <BrandLogo compact={true} />
         </Link>
 
         <button
@@ -123,17 +152,6 @@ export function AppSidebar() {
           <span>{mobileOpen ? "Close" : "Menu"}</span>
         </button>
       </header>
-
-      <style jsx global>{`
-        @media (max-width: 1024px) {
-          .mobile-header {
-            display: flex !important;
-          }
-          .hide-mobile {
-            display: none !important;
-          }
-        }
-      `}</style>
 
       {/* Backdrop for mobile */}
       {mobileOpen && (
@@ -156,33 +174,15 @@ export function AppSidebar() {
           style={{
             padding: "var(--space-5) var(--space-4)",
             borderBottom: "1px solid var(--border-subtle)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "4px",
           }}
         >
           <Link
             href="/"
             onClick={() => setMobileOpen(false)}
-            style={{ display: "flex", alignItems: "center", gap: "8px" }}
+            style={{ display: "block" }}
           >
-            <div
-              style={{
-                background: "var(--accent-primary)",
-                color: "#040806",
-                fontWeight: 700,
-                fontSize: "0.8125rem",
-                padding: "3px 7px",
-                borderRadius: "var(--radius-xs)",
-                letterSpacing: "0.06em",
-              }}
-            >
-              SECONDWIND
-            </div>
+            <BrandLogo />
           </Link>
-          <span style={{ fontSize: "0.6875rem", color: "var(--text-muted)", letterSpacing: "0.02em" }}>
-            Financial Recovery Engine
-          </span>
         </div>
 
         {/* Live Operational Mode Tag */}
