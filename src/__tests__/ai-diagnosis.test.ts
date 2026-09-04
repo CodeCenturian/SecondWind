@@ -204,7 +204,7 @@ describe("Safe Fallback & Fail-Closed Behavior", () => {
     const fallback = createSafeFallbackDiagnosis(
       "TIMEOUT",
       "Model inference timed out after 8000ms",
-      "gemini-1.5-flash"
+      "gemini-3.5-flash-lite"
     );
 
     expect(fallback.validationStatus).toBe("TIMEOUT");
@@ -215,3 +215,50 @@ describe("Safe Fallback & Fail-Closed Behavior", () => {
     expect(fallback.structuredOutput.uncertainties.length).toBeGreaterThan(0);
   });
 });
+
+describe("RBI Regulatory Compliance Failure Classifications", () => {
+  it("validates synthetic AFA_THRESHOLD_BLOCK input and requires REQUEST_ALTERNATE_METHOD", () => {
+    const afaBlockPayload = {
+      reasonClass: "AFA_THRESHOLD_BLOCK",
+      confidence: 0.96,
+      summary: "Recurring transaction amount (₹25,000) exceeds RBI e-mandate limit of ₹15,000. Fresh Additional Factor of Authentication (AFA) required from customer.",
+      evidence: [
+        "Recurring mandate charge exceeded ₹15,000 threshold",
+        "Issuer declined auto-debit due to lack of customer 2FA/AFA confirmation",
+      ],
+      recommendedHandling: "REQUEST_ALTERNATE_METHOD",
+      uncertainties: [],
+    };
+
+    const parsed = AiDiagnosisStructuredOutputSchema.safeParse(afaBlockPayload);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.reasonClass).toBe("AFA_THRESHOLD_BLOCK");
+      expect(parsed.data.recommendedHandling).toBe("REQUEST_ALTERNATE_METHOD");
+      expect(parsed.data.recommendedHandling).not.toBe("RETRY_CANDIDATE");
+    }
+  });
+
+  it("validates synthetic MANDATE_EXPIRED_OR_MISSING input and requires REQUEST_ALTERNATE_METHOD", () => {
+    const mandateExpiredPayload = {
+      reasonClass: "MANDATE_EXPIRED_OR_MISSING",
+      confidence: 0.93,
+      summary: "Customer e-mandate registration has expired or was revoked by issuer bank. Automatic retry will fail.",
+      evidence: [
+        "Issuer returned MANDATE_INACTIVE error code",
+        "Mandate validity ended prior to transaction cycle",
+      ],
+      recommendedHandling: "REQUEST_ALTERNATE_METHOD",
+      uncertainties: ["Customer may need to register a fresh recurring mandate"],
+    };
+
+    const parsed = AiDiagnosisStructuredOutputSchema.safeParse(mandateExpiredPayload);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.reasonClass).toBe("MANDATE_EXPIRED_OR_MISSING");
+      expect(parsed.data.recommendedHandling).toBe("REQUEST_ALTERNATE_METHOD");
+      expect(parsed.data.recommendedHandling).not.toBe("RETRY_CANDIDATE");
+    }
+  });
+});
+

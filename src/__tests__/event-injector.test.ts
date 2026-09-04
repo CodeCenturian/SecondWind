@@ -320,4 +320,13 @@ describe("Developer-Only Event Injector & Deterministic Scenarios", () => {
     expect(res.data["outcome"]).toBe("STOP");
     expect(res.data["reasons"]).toContain("CUSTOMER_DO_NOT_CONTACT");
   });
+
+  it("13. Deterministic scenario 10: AFA_THRESHOLD_BLOCK (>₹15,000 auto pipeline)", async () => {
+    (process.env as any).NODE_ENV = "test";
+    const res = await runInjectedScenario(fakePrisma, "AFA_THRESHOLD_BLOCK");
+    expect(res.success).toBe(true);
+    expect(res.data["status"]).toBe(CaseStatus.IN_PROGRESS);
+    expect(res.data["attemptsCount"]).toBe(1);
+    expect(res.data["paymentLinkId"]).toBeDefined();
+  }, 20000);
 });
