@@ -292,14 +292,28 @@ export function evaluateRecoveryPolicy(input: PolicyEvaluationInput): PolicyDeci
     ? input.merchantPolicy.allowedChannels
     : [AttemptChannel.PAYMENT_LINK, AttemptChannel.EMAIL];
 
+  const reasonClass = aiDiag?.reasonClass || effectiveDiagnosis?.reasonClass;
+
+  if (reasonClass === "AFA_THRESHOLD_BLOCK") {
+    reasons.push("COMPLIANCE_BLOCK_AFA_THRESHOLD_BLOCK");
+    reasons.push("RETRY_DISALLOWED_FRESH_AUTH_REQUIRED");
+  } else if (reasonClass === "MANDATE_EXPIRED_OR_MISSING") {
+    reasons.push("COMPLIANCE_BLOCK_MANDATE_EXPIRED_OR_MISSING");
+    reasons.push("RETRY_DISALLOWED_FRESH_AUTH_REQUIRED");
+  }
+
   reasons.push("POLICY_RULES_SATISFIED");
+
+  const stoppingMessage = reasonClass === "AFA_THRESHOLD_BLOCK" || reasonClass === "MANDATE_EXPIRED_OR_MISSING"
+    ? "RBI compliance block: automated direct retry disallowed; fresh customer authorization required via Payment Link."
+    : remainingAttempts > 1
+      ? `After next attempt, cooling period will be ${input.merchantPolicy.coolingPeriodMinutes} minutes.`
+      : "Next attempt is the final allowed recovery attempt.";
 
   return makeDecision(
     "ALLOW_ACTION",
     reasons,
-    remainingAttempts > 1
-      ? `After next attempt, cooling period will be ${input.merchantPolicy.coolingPeriodMinutes} minutes.`
-      : "Next attempt is the final allowed recovery attempt.",
+    stoppingMessage,
     true,
     allowedChannels
   );

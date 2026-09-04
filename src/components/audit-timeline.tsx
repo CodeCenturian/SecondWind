@@ -1,4 +1,5 @@
 import React from "react";
+import { AuditActionBadge } from "./badges";
 
 export interface AuditLogItem {
   id: string;
@@ -106,13 +107,11 @@ export function AuditTimeline({ logs, title }: AuditTimelineProps) {
                     marginBottom: "4px",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
                     <span className={`badge-base ${actorBadgeClass}`} style={{ fontSize: "0.625rem" }}>
                       {log.actorType}
                     </span>
-                    <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.8125rem" }}>
-                      {log.action}
-                    </span>
+                    <AuditActionBadge action={log.action} />
                   </div>
 
                   <span className="text-mono" style={{ fontSize: "0.6875rem", color: "var(--text-muted)" }}>

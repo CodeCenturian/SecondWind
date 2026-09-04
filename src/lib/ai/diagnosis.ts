@@ -15,12 +15,13 @@ import {
   SanitizedDiagnosisInput,
   sanitizeDiagnosisInput,
 } from "./redaction";
+import { VERIFIED_GEMINI_MODEL, VERIFIED_GEMINI_FALLBACK_MODELS } from "../constants";
 
-export const PROMPT_VERSION = "diagnosis-v1.0.0";
-export const DEFAULT_AI_MODEL = "gemini-1.5-flash";
+export const PROMPT_VERSION = "diagnosis-v1.1.0";
+export const DEFAULT_AI_MODEL = VERIFIED_GEMINI_MODEL;
 
 /**
- * System prompt strictly establishing the role, safety constraints, and taxonomy.
+ * System prompt strictly establishing the role, safety constraints, taxonomy, and regulatory rules.
  */
 function buildSystemPrompt(): string {
   const taxonomyDoc = Object.entries(REASON_CLASS_DOCUMENTATION)
@@ -40,12 +41,17 @@ SAFETY CONSTRAINTS:
 4. Never generate transaction amounts, customer identifiers, payment/link IDs, or execution commands.
 5. If the failure description is ambiguous, contradictory, or lacks sufficient signals, you MUST set recommendedHandling to "MANUAL_REVIEW" and lower your confidence score accordingly.
 
+REGULATORY & COMPLIANCE RULES (RBI E-MANDATE / AFA DIRECTIVES):
+- RBI Additional Factor of Authentication (AFA) Threshold (₹15,000): For recurring/standing instruction payments in India exceeding ₹15,000, RBI regulations mandate fresh customer 2-factor authentication (AFA). If an e-mandate transaction fails because it exceeds ₹15,000 without fresh AFA, or requires customer authentication/approval, you MUST classify it as "AFA_THRESHOLD_BLOCK" and set recommendedHandling to "REQUEST_ALTERNATE_METHOD" (NEVER "RETRY_CANDIDATE").
+- Mandate Expiry / Missing: If an e-mandate registration has expired, cancelled, revoked, or is missing on the issuer bank, classify as "MANDATE_EXPIRED_OR_MISSING" and set recommendedHandling to "REQUEST_ALTERNATE_METHOD" (NEVER "RETRY_CANDIDATE").
+- Critical Invariant: Retrying a compliance block (AFA threshold or expired mandate) without customer action is actively harmful and doomed to fail identically; it must always route to "REQUEST_ALTERNATE_METHOD" so a Payment Link is dispatched to collect fresh customer authentication.
+
 DOCUMENTED TAXONOMY:
 ${taxonomyDoc}
 
 RECOMMENDED HANDLING STRATEGIES:
-- RETRY_CANDIDATE: Transient gateway/bank downtime or recoverable failure where a delayed re-attempt via same channel is viable.
-- REQUEST_ALTERNATE_METHOD: Card expired, invalid card details, or authentication failure where customer action via alternate method (UPI, new card, payment link) is needed.
+- RETRY_CANDIDATE: Transient gateway/bank downtime or temporary recoverable failure where an automated re-attempt via same channel is viable. NEVER use for AFA_THRESHOLD_BLOCK or MANDATE_EXPIRED_OR_MISSING.
+- REQUEST_ALTERNATE_METHOD: Card expired/invalid, OTP/authentication failure, AFA threshold block (>₹15,000), or expired/missing mandate where customer action via alternate method (UPI, new card, payment link for fresh auth) is required.
 - MANUAL_REVIEW: Ambiguous, conflicting, high-risk, or non-standard failure requiring operator discretion.
 - STOP: Suspected fraud, hard issuer refusal, or unrecoverable error where further recovery attempts are strictly prohibited.
 `;
@@ -115,7 +121,7 @@ export function createSafeFallbackDiagnosis(
 /**
  * Server-only service: Diagnoses payment failure using Gemini Flash through Vercel AI SDK.
  * Validates structured output with Zod, sanitizes all inputs, and persists audit logs.
- * Never throws uncaught errors: always fails closed safely.
+ * Supports automated model fallbacks and never throws uncaught errors: always fails closed safely.
  */
 export async function diagnosePaymentFailureWithGemini(
   prisma: PrismaClient,
@@ -129,57 +135,65 @@ export async function diagnosePaymentFailureWithGemini(
     customModelName,
   } = params;
 
-  const modelName = customModelName || DEFAULT_AI_MODEL;
+  const candidateModels = customModelName
+    ? [customModelName]
+    : [VERIFIED_GEMINI_MODEL, ...VERIFIED_GEMINI_FALLBACK_MODELS];
+
   const sanitizedInput = sanitizeDiagnosisInput(rawInput);
 
   let structuredOutput: AiDiagnosisStructuredOutput | null = null;
   let validationStatus: AiDiagnosisValidationStatus = "VALID";
   let failureErrorMessage: string | undefined = undefined;
+  let successfulModel = candidateModels[0] || DEFAULT_AI_MODEL;
 
-  try {
-    const env = getEnv();
-    const google = createGoogleGenerativeAI({
-      apiKey: env.GEMINI_API_KEY,
-    });
+  const env = getEnv();
+  const google = createGoogleGenerativeAI({
+    apiKey: env.GEMINI_API_KEY,
+  });
 
-    // Invoke Gemini Flash via Vercel AI SDK generateObject with timeout
-    const result = await generateObject({
-      model: google(modelName),
-      schema: AiDiagnosisStructuredOutputSchema,
-      system: buildSystemPrompt(),
-      prompt: buildUserPrompt(sanitizedInput),
-      abortSignal: AbortSignal.timeout(timeoutMs),
-    });
+  for (const modelCandidate of candidateModels) {
+    try {
+      const result = await generateObject({
+        model: google(modelCandidate),
+        schema: AiDiagnosisStructuredOutputSchema,
+        system: buildSystemPrompt(),
+        prompt: buildUserPrompt(sanitizedInput),
+        abortSignal: AbortSignal.timeout(timeoutMs),
+      });
 
-    // Strict validation check on parsed object
-    const validation = AiDiagnosisStructuredOutputSchema.safeParse(result.object);
-    if (!validation.success) {
-      validationStatus = "SCHEMA_VIOLATION";
-      failureErrorMessage = `Zod schema validation failed: ${validation.error.message}`;
-    } else {
-      structuredOutput = validation.data;
-      validationStatus = "VALID";
+      const validation = AiDiagnosisStructuredOutputSchema.safeParse(result.object);
+      if (!validation.success) {
+        validationStatus = "SCHEMA_VIOLATION";
+        failureErrorMessage = `Zod schema validation failed: ${validation.error.message}`;
+      } else {
+        structuredOutput = validation.data;
+        validationStatus = "VALID";
+        successfulModel = modelCandidate;
+        failureErrorMessage = undefined;
+        break; // Successfully obtained valid diagnosis
+      }
+    } catch (err: unknown) {
+      const errorObj = err as Error;
+      const isTimeout =
+        errorObj?.name === "TimeoutError" ||
+        errorObj?.name === "AbortError" ||
+        errorObj?.message?.toLowerCase().includes("timeout");
+
+      validationStatus = isTimeout ? "TIMEOUT" : "MODEL_ERROR";
+      failureErrorMessage = errorObj instanceof Error ? errorObj.message : "Unknown AI error";
+      // Try next fallback model if available
     }
-  } catch (err: unknown) {
-    const errorObj = err as Error;
-    const isTimeout =
-      errorObj?.name === "TimeoutError" ||
-      errorObj?.name === "AbortError" ||
-      errorObj?.message?.toLowerCase().includes("timeout");
-
-    validationStatus = isTimeout ? "TIMEOUT" : "MODEL_ERROR";
-    failureErrorMessage = errorObj instanceof Error ? errorObj.message : "Unknown AI error";
   }
 
   const diagnosis: PersistedAiDiagnosis = structuredOutput
     ? {
-        model: modelName,
+        model: successfulModel,
         promptVersion: PROMPT_VERSION,
         structuredOutput,
         validationStatus: "VALID",
         evaluatedAt: new Date().toISOString(),
       }
-    : createSafeFallbackDiagnosis(validationStatus, failureErrorMessage || "AI processing failed", modelName);
+    : createSafeFallbackDiagnosis(validationStatus, failureErrorMessage || "AI processing failed", successfulModel);
 
   const isFallback = validationStatus !== "VALID";
 
@@ -190,10 +204,10 @@ export async function diagnosePaymentFailureWithGemini(
         caseId,
         action: isFallback ? "AI_DIAGNOSIS_FAILED" : "AI_DIAGNOSIS_COMPLETED",
         actorType: AuditActorType.SYSTEM,
-        actorId: actorId ?? modelName,
+        actorId: actorId ?? successfulModel,
         reason: isFallback
           ? `AI diagnosis failed (${validationStatus}): ${failureErrorMessage}`
-          : `AI diagnosis completed via ${modelName} (${diagnosis.structuredOutput.reasonClass}, confidence ${(diagnosis.structuredOutput.confidence * 100).toFixed(0)}%)`,
+          : `AI diagnosis completed via ${successfulModel} (${diagnosis.structuredOutput.reasonClass}, confidence ${(diagnosis.structuredOutput.confidence * 100).toFixed(0)}%)`,
         metadata: JSON.parse(
           JSON.stringify({
             model: diagnosis.model,

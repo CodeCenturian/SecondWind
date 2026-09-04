@@ -3,12 +3,12 @@
  */
 
 // Officially verified Google Gemini model identifier (checked via ai.google.dev documentation)
-export const VERIFIED_GEMINI_MODEL = "gemini-3.7-flash" as const;
+export const VERIFIED_GEMINI_MODEL = "gemini-3.5-flash-lite" as const;
 
 // Fallback verified Gemini model identifiers
 export const VERIFIED_GEMINI_FALLBACK_MODELS = [
-  "gemini-2.5-flash",
-  "gemini-2.5-pro",
+  "gemini-2.5-flash-lite",
+  "gemini-3.1-flash-lite",
 ] as const;
 
 // Default merchant recovery policy constants
