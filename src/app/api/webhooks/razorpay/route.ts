@@ -14,6 +14,7 @@ import {
   reconcileRecoveryPayment,
   updateWebhookEventStatus,
 } from "@/lib/services/case-service";
+import { runAutoRecoveryPipeline } from "@/lib/services/auto-pipeline-service";
 import { WebhookStatus } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -108,7 +109,20 @@ export async function POST(req: NextRequest) {
           webhookEventId: eventId,
         });
 
+        // Synchronously run end-to-end autonomous recovery pipeline (Diagnosis -> Policy -> Action)
+        const pipelineResult = await runAutoRecoveryPipeline(prisma, {
+          caseId: ingested.case.id,
+          merchantId,
+          webhookEventId: eventId,
+        });
+
         await updateWebhookEventStatus(prisma, eventId, WebhookStatus.PROCESSED);
+
+        // Fetch refreshed case state
+        const updatedCase = await prisma.recoveryCase.findUnique({
+          where: { id: ingested.case.id },
+          select: { id: true, status: true, version: true },
+        });
 
         return NextResponse.json(
           {
@@ -116,8 +130,9 @@ export async function POST(req: NextRequest) {
             eventId,
             status: "PROCESSED",
             caseId: ingested.case.id,
-            caseStatus: ingested.case.status,
+            caseStatus: updatedCase?.status || ingested.case.status,
             isNewCase: ingested.isNew,
+            autoPipeline: pipelineResult,
           },
           { status: 200 }
         );

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { PolicyDecision } from "@/lib/policy/types";
 import { AttemptChannel } from "@prisma/client";
 
+import { PolicyReasonBadge } from "@/components/badges";
+
 interface PolicyPanelProps {
   caseId: string;
   caseVersion: number;
@@ -161,10 +163,14 @@ export function PolicyPanel({
           <div className="text-caption" style={{ marginBottom: "var(--space-1)" }}>
             Evaluated Decision Reason
           </div>
-          <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.875rem" }}>
-            {decision.reasons.length > 0 ? decision.reasons.join(" • ") : "No policy rule constraints breached"}
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", margin: "6px 0" }}>
+            {decision.reasons.length > 0 ? (
+              decision.reasons.map((r) => <PolicyReasonBadge key={r} reason={r} />)
+            ) : (
+              <span style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>No constraints breached</span>
+            )}
           </div>
-          <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "4px" }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "6px" }}>
             Next Stopping Rule: {decision.nextStoppingRule} ({decision.remainingAttempts} attempts remaining)
           </div>
         </div>

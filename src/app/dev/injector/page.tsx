@@ -76,6 +76,13 @@ const SCENARIOS: ScenarioCard[] = [
     description: "Customer opts out (isDoNotContact: true) after initial attempt.",
     invariantVerified: "Immediately returns outcome: STOP with reason CUSTOMER_DO_NOT_CONTACT.",
   },
+  {
+    id: "AFA_THRESHOLD_BLOCK",
+    title: "10. AFA Threshold Block (>₹15,000)",
+    category: "Policy & Network",
+    description: "Recurring payment of ₹25,000 (> ₹15k RBI AFA limit) fails. Exercises complete automated pipeline: Ingestion → AI Diagnosis → Policy Evaluation → Payment Link Dispatch.",
+    invariantVerified: "AI classifies AFA_THRESHOLD_BLOCK, policy disallows direct auto-retry, and fresh Payment Link is automatically created in IN_PROGRESS state without manual operator action.",
+  },
 ];
 
 export default function DevInjectorPage() {
