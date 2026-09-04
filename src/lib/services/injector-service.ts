@@ -2,6 +2,7 @@ import { PrismaClient, CaseStatus, AttemptChannel, WebhookStatus } from "@prisma
 import { FakeRazorpayAdapter } from "../adapters/provider-adapter";
 import { claimWebhookEvent, ingestPaymentFailure, reconcileRecoveryPayment, updateWebhookEventStatus } from "./case-service";
 import { executeRecoveryAction } from "./orchestrator-service";
+import { runAutoRecoveryPipeline } from "./auto-pipeline-service";
 import { evaluateRecoveryPolicy } from "../policy/engine";
 import { PolicyEvaluationInput } from "../policy/types";
 
@@ -14,7 +15,8 @@ export type InjectedScenarioType =
   | "PROVIDER_TIMEOUT"
   | "INVALID_EVENT_SHAPE"
   | "POLICY_VERSION_CHANGE"
-  | "DO_NOT_CONTACT_AFTER_ATTEMPT";
+  | "DO_NOT_CONTACT_AFTER_ATTEMPT"
+  | "AFA_THRESHOLD_BLOCK";
 
 export interface InjectedScenarioResult {
   scenario: InjectedScenarioType;
@@ -509,6 +511,107 @@ export async function runInjectedScenario(
         message: "Customer opt-out (Do-Not-Contact) successfully halted subsequent recovery attempts.",
         logs,
         data: { outcome: decision.outcome, reasons: decision.reasons },
+      };
+    }
+
+    case "AFA_THRESHOLD_BLOCK": {
+      const eventId = `sim_evt_afa_${Date.now()}`;
+      const paymentId = `sim_pay_afa_${Date.now()}`;
+      const rawPayload = {
+        entity: "event",
+        event: "payment.failed",
+        account_id: merchantId,
+        payload: {
+          payment: {
+            entity: {
+              id: paymentId,
+              entity: "payment",
+              amount: 2500000, // ₹25,000.00 (> ₹15,000 RBI AFA threshold)
+              currency: "INR",
+              status: "failed",
+              email: "sub_user@example.com",
+              contact: "+919876543210",
+              error_code: "BAD_REQUEST_ERROR",
+              error_description: "Recurring e-mandate transaction amount ₹25,000 exceeds RBI ₹15,000 AFA threshold; customer 2FA confirmation required",
+              error_source: "bank",
+              error_step: "payment_authorization",
+              error_reason: "AFA threshold exceeded for recurring subscription",
+              notes: { isSimulation: true, recurring: true, mandate_amount: 2500000 },
+            },
+          },
+        },
+      };
+
+      logs.push(`1. Ingesting payment.failed webhook (Amount: ₹25,000 > ₹15,000 AFA limit) -> ${eventId}`);
+      await claimWebhookEvent(prisma, {
+        eventId,
+        eventType: "payment.failed",
+        rawPayload,
+        signature: "simulated_afa_sig",
+      });
+
+      const ingestResult = await ingestPaymentFailure(prisma, {
+        merchantId,
+        payment: rawPayload.payload.payment.entity as any,
+        webhookEventId: eventId,
+      });
+      logs.push(`   Case created: ${ingestResult.case.id} in status=${ingestResult.case.status}`);
+
+      // Run end-to-end auto-pipeline (Diagnosis -> Policy -> Recovery Link Creation)
+      logs.push("2. Triggering automated pipeline (Diagnosis -> Policy -> Action)...");
+      const pipelineResult = await runAutoRecoveryPipeline(prisma, {
+        caseId: ingestResult.case.id,
+        merchantId,
+        webhookEventId: eventId,
+        adapter: fakeAdapter,
+        mockDiagnosis: {
+          model: "gemini-3.7-flash",
+          promptVersion: "diagnosis-v1.1.0",
+          structuredOutput: {
+            reasonClass: "AFA_THRESHOLD_BLOCK",
+            confidence: 0.98,
+            summary: "Recurring e-mandate transaction amount ₹25,000 exceeds RBI ₹15,000 AFA threshold; customer 2FA confirmation required",
+            evidence: ["Mandate amount ₹25,000 exceeds ₹15,000 AFA limit", "RBI e-mandate compliance directive"],
+            recommendedHandling: "REQUEST_ALTERNATE_METHOD",
+            uncertainties: [],
+          },
+          validationStatus: "VALID",
+          evaluatedAt: new Date().toISOString(),
+        },
+      });
+
+      logs.push(`   Auto Pipeline executed: success=${pipelineResult.success}`);
+      logs.push(`   Policy outcome: ${pipelineResult.policyOutcome}`);
+      logs.push(`   Payment Link Created: ${pipelineResult.paymentLinkUrl || "Generated"}`);
+
+      // Verify updated case state
+      const updatedCase = await prisma.recoveryCase.findUnique({
+        where: { id: ingestResult.case.id },
+        include: {
+          attempts: true,
+          auditLogs: { orderBy: { createdAt: "desc" } },
+        },
+      });
+
+      const hasAutoPipelineAudit = updatedCase?.auditLogs.some(
+        (log) => log.action === "AUTO_PIPELINE_TRIGGERED"
+      );
+      const isCaseInProgress = updatedCase?.status === CaseStatus.IN_PROGRESS;
+
+      logs.push(`3. Case state verification: status=${updatedCase?.status}, attempts=${updatedCase?.attempts.length}`);
+
+      return {
+        scenario,
+        success: Boolean(isCaseInProgress && hasAutoPipelineAudit),
+        message: "AFA Threshold Block (>₹15,000) processed: AI diagnosed compliance block, policy disallowed auto-retry, and fresh Payment Link dispatched automatically.",
+        logs,
+        data: {
+          caseId: ingestResult.case.id,
+          status: updatedCase?.status,
+          attemptsCount: updatedCase?.attempts.length,
+          paymentLinkId: updatedCase?.attempts[0]?.paymentLinkId,
+          pipelineResult,
+        },
       };
     }
   }

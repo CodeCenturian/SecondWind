@@ -12,6 +12,8 @@ export const ReasonClassEnum = z.enum([
   "SUSPECTED_FRAUD",
   "DAILY_LIMIT_EXCEEDED",
   "USER_ABORTED",
+  "AFA_THRESHOLD_BLOCK",
+  "MANDATE_EXPIRED_OR_MISSING",
   "UNKNOWN_AMBIGUITY",
 ]);
 
@@ -54,6 +56,16 @@ export const REASON_CLASS_DOCUMENTATION: Record<ReasonClass, { title: string; de
   USER_ABORTED: {
     title: "User Aborted / Checkout Cancelled",
     description: "Customer explicitly closed the checkout window or pressed back before completion.",
+    typicallyRecoverable: true,
+  },
+  AFA_THRESHOLD_BLOCK: {
+    title: "RBI e-Mandate AFA Threshold Exceeded (>₹15,000)",
+    description: "Recurring transaction amount exceeds RBI e-mandate limit (₹15,000) requiring fresh Additional Factor of Authentication (AFA). Direct auto-retry prohibited; customer action required via Payment Link.",
+    typicallyRecoverable: true,
+  },
+  MANDATE_EXPIRED_OR_MISSING: {
+    title: "e-Mandate Expired, Cancelled, or Missing",
+    description: "Recurring standing instruction or e-mandate registration has expired, lapsed, or is missing on the issuer bank. Direct automated retry is strictly disallowed; customer must re-authenticate or provide alternate method.",
     typicallyRecoverable: true,
   },
   UNKNOWN_AMBIGUITY: {
