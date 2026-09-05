@@ -159,24 +159,27 @@ export async function ingestPaymentFailure(
         version: 1,
         auditLogs: {
           create: [
-            formatAuditEntry({
-              caseId: "", // Prisma handles relation
-              action: "CASE_DETECTED",
-              actorType: AuditActorType.SYSTEM,
-              newState: {
-                status: CaseStatus.DETECTED,
-                amountMinor: payment.amount,
-                currency: payment.currency,
-                failureCode: payment.error_code,
-                failureReason,
-              },
-              reason: `Failure detected via provider webhook ${webhookEventId ?? ""}`.trim(),
-              metadata: {
-                paymentId: payment.id,
-                orderId: payment.order_id,
-                webhookEventId,
-              },
-            }),
+            (() => {
+              const { caseId: _omitted, ...auditData } = formatAuditEntry({
+                caseId: "", // Prisma handles relation
+                action: "CASE_DETECTED",
+                actorType: AuditActorType.SYSTEM,
+                newState: {
+                  status: CaseStatus.DETECTED,
+                  amountMinor: payment.amount,
+                  currency: payment.currency,
+                  failureCode: payment.error_code,
+                  failureReason,
+                },
+                reason: `Failure detected via provider webhook ${webhookEventId ?? ""}`.trim(),
+                metadata: {
+                  paymentId: payment.id,
+                  orderId: payment.order_id,
+                  webhookEventId,
+                },
+              });
+              return auditData;
+            })(),
           ],
         },
       },

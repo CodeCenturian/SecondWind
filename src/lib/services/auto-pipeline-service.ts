@@ -149,6 +149,16 @@ export async function runAutoRecoveryPipeline(
       };
     } else {
       // Policy stopped or routed to manual review
+      if (decision.outcome === "MANUAL_REVIEW") {
+        await prisma.recoveryCase.update({
+          where: { id: targetCase.id },
+          data: {
+            status: CaseStatus.MANUAL_REVIEW,
+            version: { increment: 1 },
+          },
+        });
+      }
+
       await prisma.caseAuditLog.create({
         data: {
           caseId: targetCase.id,

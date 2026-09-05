@@ -222,8 +222,8 @@ export async function executeRecoveryAction(
   const nextAttemptNumber = currentCase.attempts.length + 1;
   const linkExpiryUnix = Math.floor(Date.now() / 1000) + policyRules.linkExpiryMinutes * 60;
   
-  // Generate internal opaque correlation token
-  const correlationToken = `rcov_corr_${currentCase.id.slice(0, 8)}_att${nextAttemptNumber}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  // Generate internal opaque correlation token (strictly <= 40 chars for Razorpay reference_id)
+  const correlationToken = `rcov_${currentCase.id.slice(0, 8)}_a${nextAttemptNumber}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 
   const providerResult = await adapter.createPaymentLink({
     amountMinor: currentCase.amountMinor,

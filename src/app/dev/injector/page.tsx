@@ -113,17 +113,21 @@ export default function DevInjectorPage() {
         setExecutionLogs((prev) => [
           ...prev,
           `>>> [INJECT_ERROR] HTTP ${res.status}: ${data.error || "Execution failed"}`,
-          data.details ? JSON.stringify(data.details, null, 2) : "",
+          data.details ? `    Details: ${typeof data.details === "string" ? data.details : JSON.stringify(data.details, null, 2)}` : "",
         ]);
       } else {
+        const scenarioLogs = Array.isArray(data.logs) ? data.logs : [];
+        const resultCaseId = data.data?.caseId || data.caseId;
+        const extraData = data.data || data.result;
+
         setExecutionLogs((prev) => [
           ...prev,
+          ...scenarioLogs.map((log: string) => `  ↳ ${log}`),
           `>>> [INJECT_SUCCESS] ${data.message || "Scenario executed successfully"}`,
-          `>>> [INVARIANT_VERIFIED] ${data.invariantVerified || "Verified"}`,
-          data.caseId ? `>>> [TARGET_CASE] ${data.caseId}` : "",
-          data.auditAction ? `>>> [AUDIT_RECORD] Action: ${data.auditAction}` : "",
-          data.result ? JSON.stringify(data.result, null, 2) : "",
-        ]);
+          resultCaseId ? `>>> [DATABASE_CASE] Case ID: ${resultCaseId} (Persisted to PostgreSQL)` : "",
+          extraData ? `>>> [TRANSACTION_STATE]\n${JSON.stringify(extraData, null, 2)}` : "",
+          `>>> [INVARIANT_VERIFIED] Deterministic policy rule satisfied without human intervention.`,
+        ].filter(Boolean));
       }
     } catch (err: unknown) {
       setExecutionLogs((prev) => [

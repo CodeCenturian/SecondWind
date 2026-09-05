@@ -12,7 +12,6 @@ import {
   BookOpen,
   Sliders,
   Terminal,
-  Presentation,
   Menu,
   X,
   Radio,
@@ -60,9 +59,8 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: "PRESENTATION & SANDBOX",
+    title: "SANDBOX",
     items: [
-      { label: "Pitch Slide Deck", href: "/slides.html", icon: Presentation, badge: "16:9", badgeType: "accent" },
       { label: "Event Injector", href: "/dev/injector", icon: Terminal, badge: "DEV", badgeType: "neutral" },
     ],
   },

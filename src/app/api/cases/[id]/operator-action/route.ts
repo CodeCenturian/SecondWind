@@ -82,7 +82,11 @@ export async function POST(
       return c;
     });
 
-    return NextResponse.json({ success: true, case: updatedCase }, { status: 200 });
+    const safeCase = {
+      ...updatedCase,
+      amountMinor: updatedCase.amountMinor.toString(),
+    };
+    return NextResponse.json({ success: true, case: safeCase }, { status: 200 });
   } catch (error) {
     console.error("[OPERATOR_ACTION_ERROR]", error);
     return NextResponse.json(
