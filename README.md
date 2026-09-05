@@ -19,8 +19,8 @@
 | **Track** | **AI Revenue Recovery** *(Find revenue that’s slipping away and win it back)* |
 | **Project Name** | **SECONDWIND** |
 | **What It Solves** | Payment failure is not one event. It is a **decision problem**. Razorpay reports that **20–25% of payments fail on average** across businesses, and **33% of failed payments are never even reattempted**. At India's scale (~1.91 billion digital payment transactions recorded by RBI in February 2025 alone), naive retry bots treat every failure the same—blindly retrying expired cards, pounding banks during downtime, and triggering duplicate charges when late authorizations arrive. SECONDWIND autonomously closes the loop: ingesting `payment.failed` webhooks, diagnosing root causes via Gemini Flash, enforcing strict regulatory (RBI AFA threshold) and merchant policy stopping rules, preventing adversarial payment-race double charges, and dispatching targeted Razorpay Payment Links with cryptographic, single-evidence accounting proof. |
-| **GitHub Repo URL** | `https://github.com/<your-username>/SecondWind` *(Public Repository — replace `<your-username>` with your GitHub handle)* |
-| **5-Min Pitch Video** | `https://youtu.be/<your-unlisted-video-id>` *(Unlisted Video — see [5-Minute Video Walkthrough Script](#-5-minute-video-walkthrough-structure) below)* |
+| **GitHub Repo URL** | `https://github.com/CodeCenturian/SecondWind` |
+| **5-Min Pitch Video** | [SecondWind \| Razorpay Buildathon 2026 (AI Revenue Recovery Track) - By Ashutosh Kumar (IIIT Bhopal)](https://www.youtube.com/watch?v=2fquU5MHV2g) (`https://youtu.be/2fquU5MHV2g`) |
 | **What Broke & How We Got Out** | 1. **Adversarial Payment Race**: Late original authorization webhook arriving after recovery link settlement caused double-charge risk (warned in Razorpay's webhook docs) → Solved via atomic correlation engine, automatic `DUPLICATE_RISK` quarantining, and idempotent `RefundTask` queuing.<br>2. **BigInt Audit Crash**: `TypeError: Do not know how to serialize a BigInt` in audit log metadata → Solved via custom replacer utility `safeJson()`.<br>3. **RBI AFA Blindness**: Dumb retries on recurring transactions >₹15,000 doomed to fail 100% of the time under RBI regulations → Solved by detecting compliance blocks, halting auto-retries, and routing to fresh 2FA Payment Link generation.<br>4. **Connection Pool Starvation**: External provider HTTP calls held inside database transactions → Solved by moving all network calls strictly out-of-transaction.<br>5. **Accounting Contamination**: Developer simulator records mixing into verified recovery totals → Solved by hard isolation and strict HMAC-signed captured webhook predicates. |
 
 ---
@@ -293,55 +293,27 @@ An obsidian-themed presentation deck built with responsive 16:9 scaling and live
 
 ---
 
-## 🎥 5-Minute Video Walkthrough Structure
+## 🎥 5-Minute Pitch & Walkthrough Video
 
-When recording your 5-minute unlisted YouTube pitch, use this battle-tested, high-signal structure:
+[![SecondWind Video](https://img.youtube.com/vi/2fquU5MHV2g/maxresdefault.jpg)](https://www.youtube.com/watch?v=2fquU5MHV2g)
 
-### ⏱️ Act I: The Problem Escalation (0:00 – 0:50)
-* **0:00 – 0:15 | Scale & Complexity (The 20–25% Reality)**:
-  * *Narration*: "A payment failure looks like one event in a dashboard. It isn't. Razorpay has reported that across businesses, an average of 20 to 25 percent of payments fail—and a third of failed payments aren't even reattempted. And the causes are completely different: insufficient funds, expired cards, authentication failures, bank downtime, technical declines, or late authorizations."
-  * *Visual*: Contrast slide: 20–25% failure statistic alongside fractured failure causes.
-* **0:15 – 0:30 | The Cost of the Wrong Response (Decision vs. Retry Loop)**:
-  * *Narration*: "The real problem isn't the failure. It's the response. A generic retry bot sees 'failed' and retries. But retrying an expired card doesn't fix the card. Retrying an authentication failure doesn't create authentication. And retrying a payment that later authorizes creates a duplicate charge. SecondWind treats recovery as a decision problem—not a retry loop."
-  * *Visual*: Generic Retry Bot (`RETRY ❌ RETRY ❌ RETRY ❌`) vs. SecondWind (`DIAGNOSE ➔ DECIDE ➔ ACT ➔ VERIFY`).
-* **0:30 – 0:42 | The Regulatory Hook (The ₹15k AFA Threshold)**:
-  * *Narration*: "Take a ₹16,000 recurring card payment. Beyond the regulatory no-AFA threshold, standing instruction debits without fresh authentication are rejected by issuing banks. A blind mandate retry is doomed to fail. SecondWind diagnoses the compliance constraint first—then routes to a fresh authenticated payment link."
-  * *Visual*: ₹16,000 e-mandate failure routing away from retry to authenticated link.
-* **0:42 – 0:50 | The Thesis & Core Invariant**:
-  * *Narration*: "That's SecondWind. It diagnoses the failure, applies deterministic policy, executes a bounded action, and verifies provider settlement. The AI can recommend. It never gets to move the money."
-  * *Visual*: Architectural cut to the SecondWind Trust Invariant.
+▶️ **Watch the Full Pitch & Live Demo**: 
+[SecondWind | Razorpay Buildathon 2026 (AI Revenue Recovery Track) - By Ashutosh Kumar (IIIT Bhopal)](https://www.youtube.com/watch?v=2fquU5MHV2g)  
+*(Direct Link: `https://youtu.be/2fquU5MHV2g`)*
 
----
-
-### ⏱️ Act II: Live Test Mode Execution & Scenarios (0:50 – 2:30)
-* **0:50 – 1:45 | Scenario 1: ₹16,000 Mandate Block (`AFA_THRESHOLD_BLOCK`)**:
-  1. Trigger webhook from developer console or real test payment.
-  2. Show Gemini Flash structured diagnosis (`AFA_THRESHOLD_BLOCK`, confidence `0.94`).
-  3. Show Policy Engine rejecting automated retry (`RETRY_DISALLOWED_COMPLIANCE_BLOCK`).
-  4. Watch real Razorpay Payment Link dispatched via API (`plink_...`).
-  5. Pay in Razorpay Checkout test mode (`success@razorpay`). Show HMAC-verified `payment_link.paid` webhook transition case to `RECOVERED`.
-* **1:45 – 2:30 | Scenario 2: Insufficient Funds (`INSUFFICIENT_FUNDS`)**:
-  1. Show context-aware retry scheduling: instead of immediate spam, system assigns a smart backoff delay (e.g. salary cycle / next morning).
-
----
-
-### ⏱️ Act III: Stopping Rules, Provenance & Edge Cases (2:30 – 4:15)
-* **2:30 – 3:15 | The Bar: Deterministic Stopping Rules & Provenance**:
-  * Open `/policy`: Walk through the 6 immutable stopping rules (attempt caps, 30-min anti-harassment cooling periods, customer DNC opt-outs).
-  * Open `/reconciliation`: Showcase single-evidence provenance ledger (zero ghost revenue, every rupee backed by provider HMAC capture).
-* **3:15 – 4:15 | What Broke & How We Got Out: The Adversarial Payment Race**:
-  * Open `/duplicates`: Demonstrate a late original payment arriving 25 minutes after failure (as warned in Razorpay's webhook documentation).
-  * Watch correlation engine trigger `DUPLICATE_RISK`, halt recovery, and queue an idempotent `RefundTask`.
-  * Open `/manual-review`: Demonstrate optimistic locking (`version` guard) protecting operator interventions.
-
----
-
-### ⏱️ Act IV: Code Quality & Audit (4:15 – 5:00)
-* **4:15 – 5:00 | Terminal Proof & Closing**:
-  * Terminal view running:
-    * `npm test` ➔ **94 / 94 tests passing across 11 test suites**.
-    * `npx tsc --noEmit` ➔ **Clean compile, 0 TypeScript errors**.
-  * Closing sentence: *"We read the work, not the resume. SecondWind is engineered to be trusted with real money."*
+### ⏱️ Video Breakdown & Chapters
+* **0:00** — Cover & Core Invariant: *"The AI can recommend. It never gets to move the money."*
+* **0:15** — The Macro Reality: 20–25% failure scale across Indian commerce
+* **0:35** — The Decision Paradigm: Why generic retry bots fail vs SecondWind post-decline orchestration
+* **0:55** — The Regulatory Hook: RBI ₹15,000 AFA threshold and standing e-mandate blocks
+* **1:15** — The Two-Layer Trust Architecture: Gemini Flash Advisory + Deterministic Policy Invariant
+* **1:35** — Closed-Loop Orchestration Flowchart
+* **1:50** — **Live Demo (Safety Invariant)**: Ambiguous failure routed to Manual Review
+* **2:25** — **Live Demo (Autonomous Recovery)**: Soft decline recovering via live Razorpay Payment Link
+* **2:50** — "The Bar" Benchmark: 30-case evaluation batch & 6 deterministic stopping rules
+* **3:10** — The Adversarial Race Hazard: What happens when an original payment captures late
+* **3:30** — **Live Demo (Adversarial Injector)**: Double-capture protection and automated `RefundTask`
+* **4:20** — 94/94 Test Invariant Proofs & Closing
 
 ---
 
